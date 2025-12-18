@@ -2,7 +2,14 @@ import axios from "axios";
 
 const httpClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
+  
+  timeout: 15000,
 });
+
+console.log(
+  "✅ VITE API BASE URL:",
+  import.meta.env.VITE_API_BASE_URL
+);
 
 httpClient.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");

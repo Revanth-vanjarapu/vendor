@@ -1,0 +1,85 @@
+/* ================================
+   SHIPPZI – GLOBAL THEME
+   Default: (Black / White)
+   ================================ */
+
+:root {
+  /* Core brand colors */
+  --bs-primary: #000000;       /* Uber Black */
+  --bs-secondary: #ffffff;     /* White */
+  --bs-success: #198754;
+  --bs-danger: #dc3545;
+  --bs-warning: #ffc107;
+  --bs-info: #0dcaf0;
+
+  /* Text */
+  --bs-body-color: #111111;
+  --bs-body-bg: #ffffff;
+  --bs-secondary-color: #6c757d;
+
+  /* Surfaces */
+  --bs-border-color: #e5e5e5;
+  --bs-card-bg: #ffffff;
+  --bs-card-border-color: #e5e5e5;
+
+  /* Buttons */
+  --bs-btn-color: #ffffff;
+  --bs-btn-hover-color: #ffffff;
+
+  /* Links */
+  --bs-link-color: #000000;
+  --bs-link-hover-color: #333333;
+
+  /* Focus */
+  --bs-focus-ring-color: rgba(0, 0, 0, 0.25);
+}
+
+/* =================================
+   SHIPPZI THEME – 
+   Bootstrap 5.3 compatible
+   ================================= */
+
+:root,
+[data-bs-theme="light"] {
+  /* Brand colors */
+  --bs-primary: #000000;
+  --bs-primary-rgb: 0, 0, 0;
+
+  --bs-secondary: #ffffff;
+  --bs-secondary-rgb: 255, 255, 255;
+
+  /* Text & background */
+  --bs-body-bg: #ffffff;
+  --bs-body-color: #111111;
+  --bs-border-color: #e5e5e5;
+
+  /* Links */
+  --bs-link-color: #000000;
+  --bs-link-hover-color: #333333;
+}
+
+/* Override Bootstrap button variables */
+.btn-primary {
+  --bs-btn-color: #ffffff;
+  --bs-btn-bg: var(--bs-primary);
+  --bs-btn-border-color: var(--bs-primary);
+  --bs-btn-hover-bg: #111111;
+  --bs-btn-hover-border-color: #111111;
+  --bs-btn-active-bg: #222222;
+  --bs-btn-active-border-color: #222222;
+}
+
+
+[data-theme="dark"] {
+  --bs-body-bg: #000000;
+  --bs-body-color: #ffffff;
+
+  --bs-primary: #ffffff;
+  --bs-secondary: #000000;
+
+  --bs-card-bg: #111111;
+  --bs-border-color: #222222;
+
+  --bs-link-color: #ffffff;
+  --bs-link-hover-color: #bbbbbb;
+}
