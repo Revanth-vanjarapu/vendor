@@ -11,12 +11,13 @@ import "leaflet/dist/leaflet.css";
 
 import {
   getVendorOrderById,
+  updateVendorOrder,
   assignDriverToOrder,
 } from "../../../api/vendor.orders.api";
 import { getNearbyDrivers } from "../../../api/vendor.drivers.api";
 
 /* ===============================
-   Leaflet marker icon fix
+   LEAFLET ICON FIX
 ================================ */
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -34,11 +35,18 @@ export default function OrderDetails() {
   const mapRef = useRef(null);
 
   const [order, setOrder] = useState(null);
+  const [form, setForm] = useState(null);
   const [drivers, setDrivers] = useState([]);
-  const [assignedDriver, setAssignedDriver] =
-    useState(null);
+  const [assignedDriver, setAssignedDriver] = useState(null);
   const [route, setRoute] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  /* ===============================
+     PERMISSION
+================================ */
+  const isEditable =
+    order?.status === "NEW" ||
+    order?.status === "CREATED";
 
   /* ===============================
      LOAD ORDER + DRIVERS
@@ -55,19 +63,12 @@ export default function OrderDetails() {
 
         const orderData = orderRes.data.data;
         setOrder(orderData);
+        setForm(orderData); // editable copy
 
         setDrivers(driversRes.data.data || []);
-
-        if (orderData.assignedDriver) {
-          setAssignedDriver(
-            orderData.assignedDriver
-          );
-        }
+        setAssignedDriver(orderData.assignedDriver || null);
       } catch (err) {
-        console.error(
-          "Failed to load order details",
-          err
-        );
+        console.error("Failed to load order", err);
       } finally {
         setLoading(false);
       }
@@ -80,28 +81,20 @@ export default function OrderDetails() {
      ROUTE (OSRM)
 ================================ */
   useEffect(() => {
-    if (
-      !order?.store?.lat ||
-      !order?.customer?.lat
-    )
-      return;
+    if (!order?.pickup || !order?.drop) return;
 
     const fetchRoute = async () => {
-      try {
-        const res = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${order.store.lng},${order.store.lat};${order.customer.lng},${order.customer.lat}?overview=full&geometries=geojson`
-        );
-        const data = await res.json();
+      const res = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${order.pickup.lng},${order.pickup.lat};${order.drop.lng},${order.drop.lat}?overview=full&geometries=geojson`
+      );
+      const data = await res.json();
 
-        if (data.routes?.length) {
-          setRoute(
-            data.routes[0].geometry.coordinates.map(
-              ([lng, lat]) => [lat, lng]
-            )
-          );
-        }
-      } catch (e) {
-        console.error("Route fetch failed", e);
+      if (data.routes?.length) {
+        setRoute(
+          data.routes[0].geometry.coordinates.map(
+            ([lng, lat]) => [lat, lng]
+          )
+        );
       }
     };
 
@@ -109,38 +102,44 @@ export default function OrderDetails() {
   }, [order]);
 
   /* ===============================
-     FIX MAP RESIZE
+     MAP FIX
 ================================ */
   useEffect(() => {
-    if (!mapRef.current) return;
-    setTimeout(() => {
-      mapRef.current.invalidateSize();
-    }, 200);
+    if (mapRef.current) {
+      setTimeout(() => mapRef.current.invalidateSize(), 200);
+    }
   }, []);
 
   /* ===============================
-     AUTO ASSIGN
+     SAVE ORDER (EDIT MODE)
 ================================ */
-  const handleAutoAssign = () => {
-    if (!drivers.length) return;
-    const nearest = [...drivers].sort(
-      (a, b) => a.distance - b.distance
-    )[0];
-    setAssignedDriver(nearest);
+  const handleSave = async () => {
+    try {
+      await updateVendorOrder(orderId, {
+        dropAddress: form.drop.address.full,
+        dropLat: form.drop.lat,
+        dropLng: form.drop.lng,
+        customerName: form.customer.name,
+        customerPhone: form.customer.phone,
+        notes: form.notes,
+      });
+
+      alert("Order updated");
+    } catch (err) {
+      console.error("Update failed", err);
+      alert("Failed to update order");
+    }
   };
 
   /* ===============================
-     MANUAL ASSIGN
+     ASSIGN DRIVER
 ================================ */
   const handleAssign = async () => {
     if (!assignedDriver) return;
 
     try {
-      await assignDriverToOrder(
-        orderId,
-        assignedDriver.id
-      );
-      alert("Driver assigned successfully");
+      await assignDriverToOrder(orderId, assignedDriver.id);
+      alert("Driver assigned");
     } catch (err) {
       console.error("Assign failed", err);
       alert("Failed to assign driver");
@@ -166,8 +165,8 @@ export default function OrderDetails() {
   return (
     <div>
       {/* HEADER */}
-      <div className="d-flex align-items-center justify-content-between mb-3">
-        <div className="d-flex align-items-center gap-2">
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <div className="d-flex gap-2 align-items-center">
           <button
             className="btn btn-light btn-sm"
             onClick={() => navigate(-1)}
@@ -175,25 +174,28 @@ export default function OrderDetails() {
             ← Back
           </button>
           <h5 className="fw-semibold mb-0">
-            Orders / Order #{order.orderId}
+            Order #{order.orderId}
           </h5>
         </div>
+
+        {!isEditable && (
+          <span className="badge bg-secondary">
+            View Only
+          </span>
+        )}
       </div>
 
       <span className="badge bg-primary-subtle text-primary mb-3">
-        {order.status?.replaceAll("_", " ")}
+        {order.status.replaceAll("_", " ")}
       </span>
 
       <div className="row g-4">
-        {/* LEFT */}
+        {/* MAP */}
         <div className="col-lg-8">
-          <div className="card mb-4">
+          <div className="card">
             <div className="card-body">
               <MapContainer
-                center={[
-                  order.store.lat,
-                  order.store.lng,
-                ]}
+                center={[order.pickup.lat, order.pickup.lng]}
                 zoom={13}
                 style={{ height: 360 }}
                 whenCreated={(map) =>
@@ -201,20 +203,18 @@ export default function OrderDetails() {
                 }
               >
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
                 <Marker
                   position={[
-                    order.store.lat,
-                    order.store.lng,
+                    order.pickup.lat,
+                    order.pickup.lng,
                   ]}
                 />
                 <Marker
                   position={[
-                    order.customer.lat,
-                    order.customer.lng,
+                    order.drop.lat,
+                    order.drop.lng,
                   ]}
                 />
-
                 {assignedDriver && (
                   <Marker
                     position={[
@@ -223,7 +223,6 @@ export default function OrderDetails() {
                     ]}
                   />
                 )}
-
                 {route.length > 0 && (
                   <Polyline positions={route} />
                 )}
@@ -232,74 +231,107 @@ export default function OrderDetails() {
           </div>
         </div>
 
-        {/* RIGHT */}
+        {/* DETAILS */}
         <div className="col-lg-4">
           <div className="card mb-3">
             <div className="card-body">
               <h6 className="fw-semibold mb-2">
-                Assign Driver
+                Customer
               </h6>
 
-              <button
-                className="btn btn-outline-primary btn-sm w-100 mb-3"
-                onClick={handleAutoAssign}
-              >
-                Auto Dispatch
-              </button>
+              <input
+                className="form-control mb-2"
+                disabled={!isEditable}
+                value={form.customer.name}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    customer: {
+                      ...form.customer,
+                      name: e.target.value,
+                    },
+                  })
+                }
+              />
 
-              {drivers.map((d) => (
-                <div
-                  key={d.id}
-                  className={`border rounded p-2 mb-2 ${
-                    assignedDriver?.id === d.id
-                      ? "border-primary"
-                      : ""
-                  }`}
-                  onClick={() =>
-                    setAssignedDriver(d)
-                  }
-                  style={{ cursor: "pointer" }}
+              <input
+                className="form-control mb-2"
+                disabled={!isEditable}
+                value={form.customer.phone}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    customer: {
+                      ...form.customer,
+                      phone: e.target.value,
+                    },
+                  })
+                }
+              />
+
+              <textarea
+                className="form-control"
+                rows={2}
+                disabled={!isEditable}
+                value={form.notes || ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    notes: e.target.value,
+                  })
+                }
+              />
+
+              {isEditable && (
+                <button
+                  className="btn btn-dark btn-sm w-100 mt-3"
+                  onClick={handleSave}
                 >
-                  <div className="fw-semibold">
-                    {d.name}
-                  </div>
-                  <div className="text-muted small">
-                    {d.phone}
-                  </div>
-                </div>
-              ))}
-
-              <button
-                className="btn btn-dark btn-sm w-100 mt-2"
-                disabled={!assignedDriver}
-                onClick={handleAssign}
-              >
-                Assign Driver
-              </button>
+                  Save Changes
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="card">
-            <div className="card-body">
-              <h6 className="fw-semibold mb-2">
-                Locations
-              </h6>
+          {isEditable && (
+            <div className="card">
+              <div className="card-body">
+                <h6 className="fw-semibold mb-2">
+                  Assign Driver
+                </h6>
 
-              <div className="small mb-2">
-                <strong>Store</strong>
-                <br />
-                {order.store.name}
-              </div>
+                {drivers.map((d) => (
+                  <div
+                    key={d.id}
+                    className={`border rounded p-2 mb-2 ${
+                      assignedDriver?.id === d.id
+                        ? "border-primary"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      setAssignedDriver(d)
+                    }
+                    style={{ cursor: "pointer" }}
+                  >
+                    <div className="fw-semibold">
+                      {d.name}
+                    </div>
+                    <div className="text-muted small">
+                      {d.phone}
+                    </div>
+                  </div>
+                ))}
 
-              <div className="small">
-                <strong>Customer</strong>
-                <br />
-                {order.customer.name}
-                <br />
-                {order.customer.address}
+                <button
+                  className="btn btn-dark btn-sm w-100"
+                  disabled={!assignedDriver}
+                  onClick={handleAssign}
+                >
+                  Assign Driver
+                </button>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
