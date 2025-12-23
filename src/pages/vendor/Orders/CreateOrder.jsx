@@ -1,17 +1,16 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Polyline,
-  useMapEvents,
-} from "react-leaflet";
+import { useEffect, useState } from "react";
+import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+
+import {
+  createVendorOrder,
+  createVendorOrdersBulk,
+} from "../../../api/vendor.orders.api";
 import { getVendorStores } from "../../../api/vendor.stores.api";
 
 /* ===============================
-   LEAFLET ICON FIX
+   Leaflet icon fix
 ================================ */
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -23,268 +22,249 @@ L.Icon.Default.mergeOptions({
     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-/* ===============================
-   MAP CLICK PICKER
-================================ */
-function LocationPicker({ onPick }) {
-  useMapEvents({
-    click(e) {
-      onPick(e.latlng);
-    },
-  });
-  return null;
-}
-
 export default function CreateOrder() {
-  /* ===============================
-     COMMON STATE
-  ================================ */
-  const [mode, setMode] = useState("single"); // single | bulk
+  const [mode, setMode] = useState("single");
   const [stores, setStores] = useState([]);
-  const [loadingStores, setLoadingStores] = useState(true);
+  const [storeId, setStoreId] = useState("");
+
   /* ===============================
-   ADDRESS → GEO (MANUAL ADDRESS)
-================================ */
-const locateFromAddress = async () => {
-  const query = `${form.address1} ${form.address2} ${form.city} ${form.pincode}`;
+     Toast
+  ================================ */
+  const [toast, setToast] = useState(null);
+  const showToast = (type, msg) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 3000);
+  };
 
-  if (!query.trim()) {
-    alert("Please enter address details first");
-    return;
-  }
-
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-        query
-      )}`
-    );
-
-    const data = await res.json();
-
-    if (data.length > 0) {
-      setForm((prev) => ({
-        ...prev,
-        lat: Number(data[0].lat),
-        lng: Number(data[0].lon),
-      }));
-    } else {
-      alert("Address not found on map");
-    }
-  } catch (err) {
-    console.error("Address lookup failed", err);
-    alert("Failed to locate address");
-  }
-};
-
+  const [submitting, setSubmitting] = useState(false);
 
   /* ===============================
      SINGLE ORDER STATE
   ================================ */
-  const [form, setForm] = useState({
+  const [single, setSingle] = useState({
+    clientOrderId: "",
     customerName: "",
     phone: "",
-    address1: "",
-    address2: "",
-    city: "",
-    pincode: "",
-    lat: 17.4474,
-    lng: 78.3762,
-    storeId: "",
+
+    pickupLat: "",
+    pickupLng: "",
+
+    dropLat: "",
+    dropLng: "",
+
+    vehicleType: "BIKE",
     notes: "",
   });
 
-  const [mapSearch, setMapSearch] = useState("");
-  const [route, setRoute] = useState([]);
-  const mapRef = useRef(null);
-
   /* ===============================
-     BULK ORDER STATE
+     BULK STATE
   ================================ */
   const [bulkText, setBulkText] = useState("");
-  const [bulkOrders, setBulkOrders] = useState([]);
+  const [bulkParsed, setBulkParsed] = useState([]);
   const [bulkErrors, setBulkErrors] = useState([]);
 
   /* ===============================
      LOAD STORES
   ================================ */
   useEffect(() => {
-    const loadStores = async () => {
-      try {
-        const res = await getVendorStores();
-        setStores(res.data?.data?.items || []);
-      } catch (err) {
-        console.error("Failed to load stores", err);
-      } finally {
-        setLoadingStores(false);
-      }
-    };
-    loadStores();
+    (async () => {
+      const res = await getVendorStores();
+      setStores(res.data.data.items);
+    })();
   }, []);
 
-  const selectedStore = stores.find(
-    (s) => s.storeId === form.storeId
-  );
+  const store = stores.find((s) => s.storeId === storeId);
 
   /* ===============================
-     MAP SEARCH
+     STORE → PICKUP LAT/LNG
   ================================ */
-  const searchOnMap = async () => {
-    if (!mapSearch.trim()) return;
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-        mapSearch
-      )}`
-    );
-    const data = await res.json();
-    if (data.length) {
-      setForm((p) => ({
-        ...p,
-        lat: Number(data[0].lat),
-        lng: Number(data[0].lon),
-      }));
-    }
-  };
-
-  /* ===============================
-     MAP CLICK
-  ================================ */
-  const handlePick = (loc) => {
-    setForm((p) => ({
+  useEffect(() => {
+    if (!store) return;
+    setSingle((p) => ({
       ...p,
-      lat: loc.lat,
-      lng: loc.lng,
+      pickupLat: store.lat,
+      pickupLng: store.lng,
     }));
+  }, [store]);
+
+  /* ===============================
+     SUBMIT SINGLE
+  ================================ */
+  const submitSingle = async () => {
+    if (!store) return showToast("danger", "Select store");
+    if (
+      !single.customerName ||
+      !single.phone ||
+      !single.dropLat ||
+      !single.dropLng
+    ) {
+      return showToast("danger", "Missing required fields");
+    }
+
+    setSubmitting(true);
+    try {
+      const payload = {
+        clientOrderId: single.clientOrderId || null,
+        storeId: store.storeId,
+
+        pickup: {
+          lat: Number(single.pickupLat),
+          lng: Number(single.pickupLng),
+        },
+        drop: {
+          lat: Number(single.dropLat),
+          lng: Number(single.dropLng),
+        },
+        customer: {
+          name: single.customerName,
+          phone: single.phone,
+        },
+        vehicleType: single.vehicleType,
+        notes: single.notes,
+        source: "VENDOR_WEB",
+      };
+
+      await createVendorOrder(payload);
+      showToast("success", "Order created successfully");
+    } catch {
+      showToast("danger", "Order creation failed");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   /* ===============================
-     ROUTE PREVIEW
+     PARSE BULK (TAB FORMAT)
   ================================ */
-  useEffect(() => {
-    if (!selectedStore) return;
-    const fetchRoute = async () => {
-      const res = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${selectedStore.lng},${selectedStore.lat};${form.lng},${form.lat}?overview=full&geometries=geojson`
-      );
-      const data = await res.json();
-      if (data.routes?.length) {
-        setRoute(
-          data.routes[0].geometry.coordinates.map(
-            ([lng, lat]) => [lat, lng]
-          )
-        );
-      }
-    };
-    fetchRoute();
-  }, [selectedStore, form.lat, form.lng]);
+  const parseBulk = () => {
+    if (!store) return showToast("danger", "Select store first");
 
-  /* ===============================
-     FIX MAP RENDER
-  ================================ */
-  useEffect(() => {
-    if (mapRef.current) {
-      setTimeout(() => {
-        mapRef.current.invalidateSize();
-      }, 200);
-    }
-  }, [mode]);
+    const lines = bulkText
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
 
-  /* ===============================
-     BULK PARSER (EXCEL COPY-PASTE)
-     Expected columns (TAB separated):
-     Store Name | OrderId | Address | Lat | Lng | Customer Name | Phone
-  ================================ */
-  const parseBulkOrders = () => {
-    const rows = bulkText.trim().split("\n");
     const parsed = [];
     const errors = [];
 
-    rows.forEach((row, index) => {
-      const cols = row.split("\t");
-      if (cols.length < 7) {
-        errors.push(`Row ${index + 1}: Invalid columns`);
+    lines.forEach((line, i) => {
+      const cols = line.split(/\t+/);
+
+      if (cols.length < 6) {
+        errors.push(`Line ${i + 1}: Invalid format`);
         return;
       }
 
       const [
-        storeName,
         clientOrderId,
-        address,
-        lat,
-        lng,
         customerName,
+        address,
+        dropLat,
+        dropLng,
         phone,
       ] = cols;
 
-      const store = stores.find(
-        (s) =>
-          s.name.trim().toLowerCase() ===
-          storeName.trim().toLowerCase()
-      );
-
-      if (!store) {
-        errors.push(
-          `Row ${index + 1}: Store not found (${storeName})`
-        );
-        return;
-      }
-
-      if (isNaN(lat) || isNaN(lng)) {
-        errors.push(
-          `Row ${index + 1}: Invalid latitude/longitude`
-        );
+      if (!dropLat || !dropLng) {
+        errors.push(`Line ${i + 1}: Lat/Lng required`);
         return;
       }
 
       parsed.push({
-        storeId: store.storeId,
         clientOrderId,
-        customerName,
-        phone,
-        address,
-        lat: Number(lat),
-        lng: Number(lng),
+        storeId: store.storeId,
+        pickup: { lat: store.lat, lng: store.lng },
+        drop: {
+          lat: Number(dropLat),
+          lng: Number(dropLng),
+        },
+        customer: {
+          name: customerName,
+          phone,
+        },
+        vehicleType: "BIKE",
+        notes: address,
+        source: "VENDOR_WEB",
       });
     });
 
-    setBulkOrders(parsed);
+    setBulkParsed(parsed);
     setBulkErrors(errors);
+
+    if (!errors.length) {
+      showToast("success", `${parsed.length} orders ready`);
+    }
   };
 
   /* ===============================
-     SUBMIT HANDLERS
+     SUBMIT BULK
   ================================ */
-  const submitSingle = () => {
-    const payload = { ...form };
-    console.log("SINGLE ORDER PAYLOAD:", payload);
-    alert("Single order API not connected yet");
-  };
+  const submitBulk = async () => {
+    if (!bulkParsed.length) return;
 
-  const submitBulk = () => {
-    console.log("BULK ORDER PAYLOAD:", bulkOrders);
-    alert(`${bulkOrders.length} bulk orders ready`);
+    setSubmitting(true);
+    try {
+      await createVendorOrdersBulk({ orders: bulkParsed });
+      showToast(
+        "success",
+        `${bulkParsed.length} orders created`
+      );
+      setBulkParsed([]);
+      setBulkText("");
+    } catch {
+      showToast("danger", "Bulk order failed");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   /* ===============================
      UI
   ================================ */
   return (
-    <div>
-      <h4 className="fw-semibold mb-3">Create Delivery Request</h4>
+    <div className="container-fluid p-4">
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`toast show position-fixed top-0 end-0 m-3 text-bg-${toast.type}`}
+          style={{ zIndex: 9999 }}
+        >
+          <div className="toast-body">{toast.msg}</div>
+        </div>
+      )}
 
-      {/* MODE SWITCH */}
+      <h4 className="fw-semibold mb-4">Create Orders</h4>
+
+      {/* Store */}
+      <select
+        className="form-select mb-4"
+        value={storeId}
+        onChange={(e) => setStoreId(e.target.value)}
+      >
+        <option value="">Select Store</option>
+        {stores.map((s) => (
+          <option key={s.storeId} value={s.storeId}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+
+      {/* Mode */}
       <div className="btn-group mb-4">
         <button
-          className={`btn btn-sm ${
-            mode === "single" ? "btn-dark" : "btn-outline-secondary"
+          className={`btn ${
+            mode === "single"
+              ? "btn-dark"
+              : "btn-outline-secondary"
           }`}
           onClick={() => setMode("single")}
         >
           Single Order
         </button>
         <button
-          className={`btn btn-sm ${
-            mode === "bulk" ? "btn-dark" : "btn-outline-secondary"
+          className={`btn ${
+            mode === "bulk"
+              ? "btn-dark"
+              : "btn-outline-secondary"
           }`}
           onClick={() => setMode("bulk")}
         >
@@ -292,820 +272,220 @@ const locateFromAddress = async () => {
         </button>
       </div>
 
+      {/* ================= SINGLE ================= */}
+      {mode === "single" && (
+        <div className="row g-4">
+          <div className="col-lg-6">
+            <div className="card shadow-sm">
+              <div className="card-body">
+                <h6 className="fw-semibold mb-3">
+                  Single Order
+                </h6>
+
+                <input
+                  className="form-control mb-2"
+                  placeholder="Client Order ID"
+                  value={single.clientOrderId}
+                  onChange={(e) =>
+                    setSingle({
+                      ...single,
+                      clientOrderId: e.target.value,
+                    })
+                  }
+                />
+
+                <input
+                  className="form-control mb-2"
+                  placeholder="Customer Name"
+                  value={single.customerName}
+                  onChange={(e) =>
+                    setSingle({
+                      ...single,
+                      customerName: e.target.value,
+                    })
+                  }
+                />
+
+                <input
+                  className="form-control mb-2"
+                  placeholder="Phone"
+                  value={single.phone}
+                  onChange={(e) =>
+                    setSingle({
+                      ...single,
+                      phone: e.target.value,
+                    })
+                  }
+                />
+
+                <div className="row g-2 mb-2">
+                  <div className="col">
+                    <input
+                      className="form-control"
+                      placeholder="Pickup Lat"
+                      value={single.pickupLat}
+                      readOnly
+                    />
+                  </div>
+                  <div className="col">
+                    <input
+                      className="form-control"
+                      placeholder="Pickup Lng"
+                      value={single.pickupLng}
+                      readOnly
+                    />
+                  </div>
+                </div>
+
+                <div className="row g-2 mb-2">
+                  <div className="col">
+                    <input
+                      className="form-control"
+                      placeholder="Drop Lat"
+                      value={single.dropLat}
+                      onChange={(e) =>
+                        setSingle({
+                          ...single,
+                          dropLat: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="col">
+                    <input
+                      className="form-control"
+                      placeholder="Drop Lng"
+                      value={single.dropLng}
+                      onChange={(e) =>
+                        setSingle({
+                          ...single,
+                          dropLng: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <textarea
+                  className="form-control mb-3"
+                  placeholder="Notes / Address"
+                  value={single.notes}
+                  onChange={(e) =>
+                    setSingle({
+                      ...single,
+                      notes: e.target.value,
+                    })
+                  }
+                />
+
+                <button
+                  className="btn btn-dark w-100"
+                  disabled={submitting}
+                  onClick={submitSingle}
+                >
+                  {submitting
+                    ? "Creating..."
+                    : "Create Order"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="col-lg-6">
+            <div className="card shadow-sm">
+              <div className="card-body">
+                <h6 className="fw-semibold mb-2">
+                  Map Preview
+                </h6>
+
+                <MapContainer
+                  center={[
+                    single.dropLat || store?.lat || 17.44,
+                    single.dropLng || store?.lng || 78.37,
+                  ]}
+                  zoom={13}
+                  style={{ height: 320 }}
+                >
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  {store && (
+                    <Marker
+                      position={[
+                        store.lat,
+                        store.lng,
+                      ]}
+                    />
+                  )}
+                  {single.dropLat && single.dropLng && (
+                    <Marker
+                      position={[
+                        single.dropLat,
+                        single.dropLng,
+                      ]}
+                    />
+                  )}
+                </MapContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ================= BULK ================= */}
       {mode === "bulk" && (
-        <div className="card">
+        <div className="card shadow-sm">
           <div className="card-body">
+            <h6 className="fw-semibold mb-2">
+              Paste Bulk Orders
+            </h6>
+
+            <p className="text-muted small">
+              clientOrderId ⟶ Name ⟶ Address ⟶ DropLat ⟶ DropLng ⟶ Phone
+            </p>
+
             <textarea
               className="form-control mb-3"
-              rows={8}
-              placeholder="Paste rows directly from Excel"
+              rows={10}
+              placeholder="Paste from Excel / Sheets"
               value={bulkText}
-              onChange={(e) => setBulkText(e.target.value)}
+              onChange={(e) =>
+                setBulkText(e.target.value)
+              }
             />
 
             <button
-              className="btn btn-outline-secondary btn-sm mb-3"
-              onClick={parseBulkOrders}
+              className="btn btn-outline-secondary me-2"
+              onClick={parseBulk}
             >
-              Parse Orders
+              Parse
             </button>
 
             {bulkErrors.length > 0 && (
-              <div className="alert alert-danger small">
+              <div className="alert alert-danger mt-3">
                 {bulkErrors.map((e, i) => (
                   <div key={i}>{e}</div>
                 ))}
               </div>
             )}
 
-            {bulkOrders.length > 0 && (
-              <>
-                <table className="table table-sm">
-                  <thead>
-                    <tr>
-                      <th>Store</th>
-                      <th>Customer</th>
-                      <th>Phone</th>
-                      <th>Lat</th>
-                      <th>Lng</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bulkOrders.map((o, i) => (
-                      <tr key={i}>
-                        <td>{o.storeId}</td>
-                        <td>{o.customerName}</td>
-                        <td>{o.phone}</td>
-                        <td>{o.lat}</td>
-                        <td>{o.lng}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
+            {bulkParsed.length > 0 && (
+              <div className="mt-3 d-flex justify-content-between align-items-center">
+                <span className="text-muted">
+                  {bulkParsed.length} orders ready
+                </span>
                 <button
                   className="btn btn-dark"
+                  disabled={submitting}
                   onClick={submitBulk}
                 >
-                  Create Bulk Orders
+                  {submitting
+                    ? "Creating..."
+                    : "Create Orders"}
                 </button>
-              </>
+              </div>
             )}
           </div>
         </div>
       )}
-
-      {/* ================= SINGLE ================= */}
-      {mode === "single" && (
-        <div>
-      <div className="mb-4">
-        <h4 className="fw-semibold mb-1">
-          Create Delivery Request
-        </h4>
-        <p className="text-muted small mb-0">
-          Manual address for records, map location for routing & ETA
-        </p>
-      </div>
-
-      <div className="row g-4">
-        {/* LEFT */}
-        <div className="col-lg-7">
-          <div className="card">
-            <div className="card-body">
-              <h6 className="fw-semibold mb-3">
-                Customer Information
-              </h6>
-
-              <div className="row g-3 mb-3">
-                <div className="col-md-6">
-                  <input
-                    className="form-control"
-                    placeholder="Customer Name"
-                    value={form.customerName}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        customerName: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div className="col-md-6">
-                  <input
-                    className="form-control"
-                    placeholder="Phone"
-                    value={form.phone}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        phone: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <h6 className="fw-semibold mb-2">
-                Delivery Address (Manual)
-              </h6>
-
-              <input
-                className="form-control mb-2"
-                placeholder="House / Street"
-                value={form.addressLine1}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    addressLine1: e.target.value,
-                  })
-                }
-              />
-
-              <input
-                className="form-control mb-2"
-                placeholder="Area / Locality"
-                value={form.addressLine2}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    addressLine2: e.target.value,
-                  })
-                }
-              />
-
-              <div className="row g-2 mb-3">
-                <div className="col">
-                  <input
-                    className="form-control"
-                    placeholder="City"
-                    value={form.city}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        city: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div className="col">
-                  <input
-                    className="form-control"
-                    placeholder="Pincode"
-                    value={form.pincode}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        pincode: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <button
-                className="btn btn-outline-secondary btn-sm mb-3"
-                onClick={locateFromAddress}
-              >
-                Locate Address on Map
-              </button>
-
-              <div className="row g-2 mb-3">
-                <div className="col">
-                  <input
-                    className="form-control"
-                    value={form.lat}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        lat: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-                <div className="col">
-                  <input
-                    className="form-control"
-                    value={form.lng}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        lng: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <select
-                className="form-select mb-3"
-                value={form.storeId}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    storeId: e.target.value,
-                  })
-                }
-                disabled={loadingStores}
-              >
-                <option value="">Select Store</option>
-                {stores.map((s) => (
-                  <option key={s.storeId} value={s.storeId}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-
-              <textarea
-                className="form-control mb-3"
-                placeholder="Delivery notes"
-                rows={2}
-                value={form.notes}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    notes: e.target.value,
-                  })
-                }
-              />
-
-              <div className="d-flex justify-content-end gap-2">
-                <button className="btn btn-light">
-                  Cancel
-                </button>
-                <button
-                  className="btn btn-dark"
-                  onClick={submitSingle}
-                >
-                  Create Request
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT */}
-        <div className="col-lg-5">
-          <div className="card mb-3">
-            <div className="card-body">
-              <h6 className="fw-semibold mb-2">
-                Destination & Route
-              </h6>
-
-              {/* MAP SEARCH */}
-              <div className="input-group mb-2">
-                <input
-                  className="form-control"
-                  placeholder="Search destination (landmark / area)"
-                  value={mapSearch}
-                  onChange={(e) =>
-                    setMapSearch(e.target.value)
-                  }
-                />
-                <button
-                  className="btn btn-outline-secondary"
-                  onClick={searchOnMap}
-                >
-                  Locate
-                </button>
-              </div>
-
-              <MapContainer
-                center={[form.lat, form.lng]}
-                zoom={14}
-                style={{ height: 300 }}
-                whenCreated={(map) =>
-                  (mapRef.current = map)
-                }
-              >
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-                {selectedStore && (
-                  <Marker
-                    position={[
-                      selectedStore.lat,
-                      selectedStore.lng,
-                    ]}
-                  />
-                )}
-
-                <Marker position={[form.lat, form.lng]} />
-
-                {route.length > 0 && (
-                  <Polyline positions={route} />
-                )}
-
-                <LocationPicker onPick={handlePick} />
-              </MapContainer>
-
-              <div className="text-muted small mt-2">
-                Search, click on map, or edit coordinates to set destination
-              </div>
-            </div>
-          </div>
-
-          <div className="card bg-light">
-            <div className="card-body">
-              <h6 className="fw-semibold mb-1">
-                Automated Assignment
-              </h6>
-              <p className="text-muted small mb-0">
-                Riders will be auto-selected based on distance and availability.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-      )}
     </div>
   );
 }
-
-
-
-
-
-
-
-
-// import { useEffect, useState, useRef } from "react";
-// import {
-//   MapContainer,
-//   TileLayer,
-//   Marker,
-//   Polyline,
-//   useMapEvents,
-// } from "react-leaflet";
-// import L from "leaflet";
-// import "leaflet/dist/leaflet.css";
-
-// import { getVendorStores } from "../../../api/vendor.stores.api";
-
-// /* ===============================
-//    Leaflet marker icon fix
-// ================================ */
-// delete L.Icon.Default.prototype._getIconUrl;
-// L.Icon.Default.mergeOptions({
-//   iconUrl:
-//     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-//   iconRetinaUrl:
-//     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-//   shadowUrl:
-//     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-// });
-
-// /* ===============================
-//    Map click picker
-// ================================ */
-// function LocationPicker({ onPick }) {
-//   useMapEvents({
-//     click(e) {
-//       onPick(e.latlng);
-//     },
-//   });
-//   return null;
-// }
-
-// export default function CreateOrder() {
-//   /* ===============================
-//      STATE
-//   ================================ */
-//   const [stores, setStores] = useState([]);
-//   const [loadingStores, setLoadingStores] = useState(true);
-
-//   const [mapSearch, setMapSearch] = useState("");
-
-//   const [form, setForm] = useState({
-//     customerName: "",
-//     phone: "",
-
-//     addressLine1: "",
-//     addressLine2: "",
-//     city: "",
-//     pincode: "",
-
-//     lat: 17.4474,
-//     lng: 78.3762,
-
-//     storeId: "",
-//     notes: "",
-//   });
-
-//   const [route, setRoute] = useState([]);
-//   const mapRef = useRef(null);
-
-//   /* ===============================
-//      LOAD STORES (REAL API)
-//   ================================ */
-//   useEffect(() => {
-//     const loadStores = async () => {
-//       try {
-//         const res = await getVendorStores();
-//         setStores(res.data.data.items);
-//       } catch (err) {
-//         console.error("Failed to load stores", err);
-//       } finally {
-//         setLoadingStores(false);
-//       }
-//     };
-
-//     loadStores();
-//   }, []);
-
-//   const selectedStore = stores.find(
-//     (s) => s.storeId === form.storeId
-//   );
-
-//   /* ===============================
-//      MANUAL ADDRESS → GEO (OPTIONAL)
-//   ================================ */
-//   const locateFromAddress = async () => {
-//     const query = `${form.addressLine1} ${form.addressLine2} ${form.city} ${form.pincode}`;
-//     if (!query.trim()) return;
-
-//     try {
-//       const res = await fetch(
-//         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-//           query
-//         )}`
-//       );
-//       const data = await res.json();
-
-//       if (data.length > 0) {
-//         setForm((prev) => ({
-//           ...prev,
-//           lat: parseFloat(data[0].lat),
-//           lng: parseFloat(data[0].lon),
-//         }));
-//       }
-//     } catch (err) {
-//       console.error("Address lookup failed", err);
-//     }
-//   };
-
-//   /* ===============================
-//      MAP SEARCH (FREE TEXT)
-//   ================================ */
-//   const searchOnMap = async () => {
-//     if (!mapSearch.trim()) return;
-
-//     try {
-//       const res = await fetch(
-//         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-//           mapSearch
-//         )}`
-//       );
-//       const data = await res.json();
-
-//       if (data.length > 0) {
-//         setForm((prev) => ({
-//           ...prev,
-//           lat: parseFloat(data[0].lat),
-//           lng: parseFloat(data[0].lon),
-//         }));
-//       }
-//     } catch (err) {
-//       console.error("Map search failed", err);
-//     }
-//   };
-
-//   /* ===============================
-//      MAP CLICK
-//   ================================ */
-//   const handlePick = (loc) => {
-//     setForm((prev) => ({
-//       ...prev,
-//       lat: loc.lat,
-//       lng: loc.lng,
-//     }));
-//   };
-
-//   /* ===============================
-//      ROUTE (OSRM – REAL ROADS)
-//   ================================ */
-//   useEffect(() => {
-//     if (!selectedStore) return;
-
-//     const fetchRoute = async () => {
-//       try {
-//         const res = await fetch(
-//           `https://router.project-osrm.org/route/v1/driving/${selectedStore.lng},${selectedStore.lat};${form.lng},${form.lat}?overview=full&geometries=geojson`
-//         );
-//         const data = await res.json();
-
-//         if (data.routes?.length) {
-//           setRoute(
-//             data.routes[0].geometry.coordinates.map(
-//               ([lng, lat]) => [lat, lng]
-//             )
-//           );
-//         }
-//       } catch (err) {
-//         console.error("Route fetch failed", err);
-//       }
-//     };
-
-//     fetchRoute();
-//   }, [selectedStore, form.lat, form.lng]);
-
-//   /* ===============================
-//      FIX MAP ON REFRESH
-//   ================================ */
-//   useEffect(() => {
-//     if (!mapRef.current) return;
-//     setTimeout(() => {
-//       mapRef.current.invalidateSize();
-//     }, 200);
-//   }, []);
-
-//   /* ===============================
-//      SUBMIT (PLACEHOLDER)
-//   ================================ */
-//   const handleSubmit = () => {
-//     const payload = {
-//       storeId: form.storeId,
-//       customerName: form.customerName,
-//       phone: form.phone,
-
-//       address: {
-//         line1: form.addressLine1,
-//         line2: form.addressLine2,
-//         city: form.city,
-//         pincode: form.pincode,
-//       },
-
-//       lat: form.lat,
-//       lng: form.lng,
-//       notes: form.notes,
-//     };
-
-//     console.log("CREATE ORDER PAYLOAD (API later):", payload);
-//     alert("Create Order API not integrated yet");
-//   };
-
-//   /* ===============================
-//      UI
-//   ================================ */
-//   return (
-//     <div>
-//       <div className="mb-4">
-//         <h4 className="fw-semibold mb-1">
-//           Create Delivery Request
-//         </h4>
-//         <p className="text-muted small mb-0">
-//           Manual address for records, map location for routing & ETA
-//         </p>
-//       </div>
-
-//       <div className="row g-4">
-//         {/* LEFT */}
-//         <div className="col-lg-7">
-//           <div className="card">
-//             <div className="card-body">
-//               <h6 className="fw-semibold mb-3">
-//                 Customer Information
-//               </h6>
-
-//               <div className="row g-3 mb-3">
-//                 <div className="col-md-6">
-//                   <input
-//                     className="form-control"
-//                     placeholder="Customer Name"
-//                     value={form.customerName}
-//                     onChange={(e) =>
-//                       setForm({
-//                         ...form,
-//                         customerName: e.target.value,
-//                       })
-//                     }
-//                   />
-//                 </div>
-//                 <div className="col-md-6">
-//                   <input
-//                     className="form-control"
-//                     placeholder="Phone"
-//                     value={form.phone}
-//                     onChange={(e) =>
-//                       setForm({
-//                         ...form,
-//                         phone: e.target.value,
-//                       })
-//                     }
-//                   />
-//                 </div>
-//               </div>
-
-//               <h6 className="fw-semibold mb-2">
-//                 Delivery Address (Manual)
-//               </h6>
-
-//               <input
-//                 className="form-control mb-2"
-//                 placeholder="House / Street"
-//                 value={form.addressLine1}
-//                 onChange={(e) =>
-//                   setForm({
-//                     ...form,
-//                     addressLine1: e.target.value,
-//                   })
-//                 }
-//               />
-
-//               <input
-//                 className="form-control mb-2"
-//                 placeholder="Area / Locality"
-//                 value={form.addressLine2}
-//                 onChange={(e) =>
-//                   setForm({
-//                     ...form,
-//                     addressLine2: e.target.value,
-//                   })
-//                 }
-//               />
-
-//               <div className="row g-2 mb-3">
-//                 <div className="col">
-//                   <input
-//                     className="form-control"
-//                     placeholder="City"
-//                     value={form.city}
-//                     onChange={(e) =>
-//                       setForm({
-//                         ...form,
-//                         city: e.target.value,
-//                       })
-//                     }
-//                   />
-//                 </div>
-//                 <div className="col">
-//                   <input
-//                     className="form-control"
-//                     placeholder="Pincode"
-//                     value={form.pincode}
-//                     onChange={(e) =>
-//                       setForm({
-//                         ...form,
-//                         pincode: e.target.value,
-//                       })
-//                     }
-//                   />
-//                 </div>
-//               </div>
-
-//               <button
-//                 className="btn btn-outline-secondary btn-sm mb-3"
-//                 onClick={locateFromAddress}
-//               >
-//                 Locate Address on Map
-//               </button>
-
-//               <div className="row g-2 mb-3">
-//                 <div className="col">
-//                   <input
-//                     className="form-control"
-//                     value={form.lat}
-//                     onChange={(e) =>
-//                       setForm({
-//                         ...form,
-//                         lat: Number(e.target.value),
-//                       })
-//                     }
-//                   />
-//                 </div>
-//                 <div className="col">
-//                   <input
-//                     className="form-control"
-//                     value={form.lng}
-//                     onChange={(e) =>
-//                       setForm({
-//                         ...form,
-//                         lng: Number(e.target.value),
-//                       })
-//                     }
-//                   />
-//                 </div>
-//               </div>
-
-//               <select
-//                 className="form-select mb-3"
-//                 value={form.storeId}
-//                 onChange={(e) =>
-//                   setForm({
-//                     ...form,
-//                     storeId: e.target.value,
-//                   })
-//                 }
-//                 disabled={loadingStores}
-//               >
-//                 <option value="">Select Store</option>
-//                 {stores.map((s) => (
-//                   <option key={s.storeId} value={s.storeId}>
-//                     {s.name}
-//                   </option>
-//                 ))}
-//               </select>
-
-//               <textarea
-//                 className="form-control mb-3"
-//                 placeholder="Delivery notes"
-//                 rows={2}
-//                 value={form.notes}
-//                 onChange={(e) =>
-//                   setForm({
-//                     ...form,
-//                     notes: e.target.value,
-//                   })
-//                 }
-//               />
-
-//               <div className="d-flex justify-content-end gap-2">
-//                 <button className="btn btn-light">
-//                   Cancel
-//                 </button>
-//                 <button
-//                   className="btn btn-dark"
-//                   onClick={handleSubmit}
-//                 >
-//                   Create Request
-//                 </button>
-//               </div>
-//             </div>
-//           </div>
-//         </div>
-
-//         {/* RIGHT */}
-//         <div className="col-lg-5">
-//           <div className="card mb-3">
-//             <div className="card-body">
-//               <h6 className="fw-semibold mb-2">
-//                 Destination & Route
-//               </h6>
-
-//               {/* MAP SEARCH */}
-//               <div className="input-group mb-2">
-//                 <input
-//                   className="form-control"
-//                   placeholder="Search destination (landmark / area)"
-//                   value={mapSearch}
-//                   onChange={(e) =>
-//                     setMapSearch(e.target.value)
-//                   }
-//                 />
-//                 <button
-//                   className="btn btn-outline-secondary"
-//                   onClick={searchOnMap}
-//                 >
-//                   Locate
-//                 </button>
-//               </div>
-
-//               <MapContainer
-//                 center={[form.lat, form.lng]}
-//                 zoom={14}
-//                 style={{ height: 300 }}
-//                 whenCreated={(map) =>
-//                   (mapRef.current = map)
-//                 }
-//               >
-//                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-//                 {selectedStore && (
-//                   <Marker
-//                     position={[
-//                       selectedStore.lat,
-//                       selectedStore.lng,
-//                     ]}
-//                   />
-//                 )}
-
-//                 <Marker position={[form.lat, form.lng]} />
-
-//                 {route.length > 0 && (
-//                   <Polyline positions={route} />
-//                 )}
-
-//                 <LocationPicker onPick={handlePick} />
-//               </MapContainer>
-
-//               <div className="text-muted small mt-2">
-//                 Search, click on map, or edit coordinates to set destination
-//               </div>
-//             </div>
-//           </div>
-
-//           <div className="card bg-light">
-//             <div className="card-body">
-//               <h6 className="fw-semibold mb-1">
-//                 Automated Assignment
-//               </h6>
-//               <p className="text-muted small mb-0">
-//                 Riders will be auto-selected based on distance and availability.
-//               </p>
-//             </div>
-//           </div>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// }

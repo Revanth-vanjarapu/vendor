@@ -1,20 +1,26 @@
 import { useEffect, useState } from "react";
 import {
   getVendorRiders,
+  getVendorRiderById,
   assignRiderToStore,
-  changeRiderStatus,
 } from "../../api/vendor.riders.api";
 import { getVendorStores } from "../../api/vendor.stores.api";
-import {
-  RefreshCcw,
-  ToggleLeft,
-  ToggleRight,
-} from "lucide-react";
+import { RefreshCcw, Eye, X } from "lucide-react";
+
+/* ===============================
+   SAFE NORMALIZER
+================================ */
+const normalizeArray = (v) => (Array.isArray(v) ? v : []);
 
 export default function Riders() {
   const [riders, setRiders] = useState([]);
   const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  /* ===== Modal state ===== */
+  const [showModal, setShowModal] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [selectedRider, setSelectedRider] = useState(null);
 
   /* ===============================
      LOAD DATA
@@ -22,16 +28,17 @@ export default function Riders() {
   const loadData = async () => {
     try {
       setLoading(true);
-
       const [ridersRes, storesRes] = await Promise.all([
         getVendorRiders(),
         getVendorStores(),
       ]);
 
-      setRiders(ridersRes.data?.data?.items || []);
-      setStores(storesRes.data?.data?.items || []);
+      setRiders(normalizeArray(ridersRes?.data?.data));
+      setStores(normalizeArray(storesRes?.data?.data));
     } catch (err) {
-      console.error("Failed to load riders", err);
+      console.error(err);
+      setRiders([]);
+      setStores([]);
     } finally {
       setLoading(false);
     }
@@ -42,32 +49,33 @@ export default function Riders() {
   }, []);
 
   /* ===============================
-     ACTIONS
+     STORE ASSIGN
   ================================ */
   const handleStoreChange = async (riderId, storeId) => {
     try {
-      await assignRiderToStore(riderId, storeId);
+      await assignRiderToStore(riderId, storeId || null);
       loadData();
     } catch {
-      alert("Failed to assign rider to store");
+      alert("Failed to assign rider");
     }
   };
 
-  const toggleStatus = async (rider) => {
+  /* ===============================
+     VIEW MODAL
+  ================================ */
+  const openViewModal = async (riderId) => {
     try {
-      const newStatus =
-        rider.status === "ACTIVE"
-          ? "INACTIVE"
-          : "ACTIVE";
+      setShowModal(true);
+      setModalLoading(true);
+      setSelectedRider(null);
 
-      await changeRiderStatus(
-        rider.riderId,
-        newStatus
-      );
-
-      loadData();
+      const res = await getVendorRiderById(riderId);
+      setSelectedRider(res?.data?.data || null);
     } catch {
-      alert("Failed to change rider status");
+      alert("Failed to load rider details");
+      setShowModal(false);
+    } finally {
+      setModalLoading(false);
     }
   };
 
@@ -79,7 +87,6 @@ export default function Riders() {
       {/* HEADER */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h4 className="fw-semibold mb-0">Riders</h4>
-
         <button
           className="btn btn-light btn-sm d-flex align-items-center gap-2"
           onClick={loadData}
@@ -99,7 +106,7 @@ export default function Riders() {
                 <th>Contact</th>
                 <th>Store</th>
                 <th>Status</th>
-                <th></th>
+                <th className="text-end">Action</th>
               </tr>
             </thead>
 
@@ -107,7 +114,7 @@ export default function Riders() {
               {loading && (
                 <tr>
                   <td colSpan={5} className="text-center py-4">
-                    Loading riders...
+                    Loading riders…
                   </td>
                 </tr>
               )}
@@ -115,20 +122,20 @@ export default function Riders() {
               {!loading &&
                 riders.map((r) => (
                   <tr key={r.riderId}>
-                    {/* Rider */}
                     <td>
                       <div className="d-flex align-items-center gap-2">
                         <img
-                          src={r.profilePicUrl}
-                          alt={r.name}
-                          className="rounded-circle"
+                          src={
+                            r.profilePicUrl ||
+                            "https://via.placeholder.com/40?text=R"
+                          }
                           width="36"
                           height="36"
+                          className="rounded-circle"
+                          alt={r.name}
                         />
                         <div>
-                          <div className="fw-semibold">
-                            {r.name}
-                          </div>
+                          <div className="fw-semibold">{r.name}</div>
                           <div className="text-muted small">
                             {r.riderId}
                           </div>
@@ -136,15 +143,13 @@ export default function Riders() {
                       </div>
                     </td>
 
-                    {/* Contact */}
                     <td className="small">
                       {r.phone}
                       <div className="text-muted small">
-                        {r.email}
+                        {r.email || "—"}
                       </div>
                     </td>
 
-                    {/* Store */}
                     <td>
                       <select
                         className="form-select form-select-sm"
@@ -156,21 +161,15 @@ export default function Riders() {
                           )
                         }
                       >
-                        <option value="">
-                          Unassigned
-                        </option>
+                        <option value="">Unassigned</option>
                         {stores.map((s) => (
-                          <option
-                            key={s.storeId}
-                            value={s.storeId}
-                          >
+                          <option key={s.storeId} value={s.storeId}>
                             {s.name}
                           </option>
                         ))}
                       </select>
                     </td>
 
-                    {/* Status */}
                     <td>
                       <span
                         className={`badge ${
@@ -183,20 +182,13 @@ export default function Riders() {
                       </span>
                     </td>
 
-                    {/* Toggle */}
-                    <td>
+                    <td className="text-end">
                       <button
-                        className="btn btn-link p-0"
-                        onClick={() =>
-                          toggleStatus(r)
-                        }
-                        title="Toggle Status"
+                        className="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 ms-auto"
+                        onClick={() => openViewModal(r.riderId)}
                       >
-                        {r.status === "ACTIVE" ? (
-                          <ToggleRight size={22} />
-                        ) : (
-                          <ToggleLeft size={22} />
-                        )}
+                        <Eye size={14} />
+                        View
                       </button>
                     </td>
                   </tr>
@@ -204,10 +196,7 @@ export default function Riders() {
 
               {!loading && riders.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={5}
-                    className="text-center text-muted py-4"
-                  >
+                  <td colSpan={5} className="text-center text-muted py-4">
                     No riders found
                   </td>
                 </tr>
@@ -216,6 +205,97 @@ export default function Riders() {
           </table>
         </div>
       </div>
+
+      {/* ===============================
+         CUSTOM MODAL (NO FREEZE)
+      ================================ */}
+      {showModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            zIndex: 1050,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 8,
+              width: "700px",
+              maxWidth: "95%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+          >
+            {/* Header */}
+            <div className="d-flex justify-content-between align-items-center border-bottom p-3">
+              <h5 className="mb-0">Rider Details</h5>
+              <button
+                className="btn btn-light btn-sm"
+                onClick={() => setShowModal(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4">
+              {modalLoading && (
+                <div className="text-center py-4">
+                  Loading details…
+                </div>
+              )}
+
+              {!modalLoading && selectedRider && (
+                <div className="row g-3">
+                  <div className="col-md-4 text-center">
+                    <img
+                      src={
+                        selectedRider.profilePicUrl ||
+                        "https://via.placeholder.com/120?text=R"
+                      }
+                      width="120"
+                      height="120"
+                      className="rounded mb-2"
+                      alt="profile"
+                    />
+                    <div className="fw-semibold">
+                      {selectedRider.name}
+                    </div>
+                    <div className="text-muted small">
+                      {selectedRider.riderId}
+                    </div>
+                  </div>
+
+                  <div className="col-md-8">
+                    <p><b>Phone:</b> {selectedRider.phone}</p>
+                    <p><b>Email:</b> {selectedRider.email || "—"}</p>
+                    <p><b>Status:</b> {selectedRider.status}</p>
+                    <p><b>Approval:</b> {selectedRider.isApprove}</p>
+                    <p><b>Store:</b> {selectedRider.storeId || "Unassigned"}</p>
+                    <p><b>Created:</b> {new Date(selectedRider.createdAt).toLocaleString()}</p>
+                    <p><b>Updated:</b> {new Date(selectedRider.updatedAt).toLocaleString()}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-top p-3 text-end">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

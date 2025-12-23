@@ -3,20 +3,26 @@ import { useNavigate } from "react-router-dom";
 import { loginVendor } from "../../api/auth.api";
 
 export default function Login() {
+  // ✅ Prefilled credentials (dev / staging)
   const [username, setUsername] = useState("ratnadeep_admin1");
   const [password, setPassword] = useState("Test@123");
   const [error, setError] = useState("");
+
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError("");
+
     try {
       const res = await loginVendor({ username, password });
 
       const token = res.data?.data?.token;
       const vendor = res.data?.data?.vendor;
 
-      if (!token) throw new Error("Token missing");
+      if (!token || !vendor) {
+        throw new Error("Invalid login response");
+      }
 
       localStorage.setItem("token", token);
       localStorage.setItem("vendor", JSON.stringify(vendor));
@@ -48,7 +54,7 @@ export default function Login() {
         <div className="card border-0 shadow-sm">
           <div className="card-body p-4">
             <h4 className="fw-semibold text-center mb-1">
-              Welcome back
+              Vendor Login
             </h4>
             <p
               className="text-muted text-center mb-4"
@@ -66,18 +72,18 @@ export default function Login() {
             <form onSubmit={handleSubmit}>
               <div className="mb-3">
                 <label className="form-label small fw-medium">
-                  Email address
+                  Username
                 </label>
                 <input
                   className="form-control"
-                  placeholder="admin@shippzi.com"
+                  placeholder="ratnadeep_admin1"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
                 />
               </div>
 
-              <div className="mb-2">
+              <div className="mb-3">
                 <label className="form-label small fw-medium">
                   Password
                 </label>
@@ -95,6 +101,7 @@ export default function Login() {
                 <a
                   href="#"
                   className="text-primary text-decoration-none small"
+                  onClick={(e) => e.preventDefault()}
                 >
                   Forgot password?
                 </a>

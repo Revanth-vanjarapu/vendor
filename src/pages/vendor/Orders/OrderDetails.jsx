@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   MapContainer,
@@ -9,15 +9,10 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import {
-  getVendorOrderById,
-  updateVendorOrder,
-  assignDriverToOrder,
-} from "../../../api/vendor.orders.api";
-import { getNearbyDrivers } from "../../../api/vendor.drivers.api";
+import httpClient from "../../../utils/httpClient";
 
 /* ===============================
-   LEAFLET ICON FIX
+   Leaflet marker fix
 ================================ */
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -32,177 +27,161 @@ L.Icon.Default.mergeOptions({
 export default function OrderDetails() {
   const { orderId } = useParams();
   const navigate = useNavigate();
-  const mapRef = useRef(null);
 
   const [order, setOrder] = useState(null);
-  const [form, setForm] = useState(null);
-  const [drivers, setDrivers] = useState([]);
-  const [assignedDriver, setAssignedDriver] = useState(null);
-  const [route, setRoute] = useState([]);
+  const [riders, setRiders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [assigning, setAssigning] = useState(false);
+
+  const [toast, setToast] = useState(null);
+  const showToast = (type, msg) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   /* ===============================
-     PERMISSION
-================================ */
-  const isEditable =
-    order?.status === "NEW" ||
-    order?.status === "CREATED";
-
-  /* ===============================
-     LOAD ORDER + DRIVERS
-================================ */
+     LOAD DATA
+  ================================ */
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-
-        const [orderRes, driversRes] = await Promise.all([
-          getVendorOrderById(orderId),
-          getNearbyDrivers(orderId),
-        ]);
-
-        const orderData = orderRes.data.data;
-        setOrder(orderData);
-        setForm(orderData); // editable copy
-
-        setDrivers(driversRes.data.data || []);
-        setAssignedDriver(orderData.assignedDriver || null);
-      } catch (err) {
-        console.error("Failed to load order", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadData();
   }, [orderId]);
 
-  /* ===============================
-     ROUTE (OSRM)
-================================ */
-  useEffect(() => {
-    if (!order?.pickup || !order?.drop) return;
+  async function loadData() {
+    try {
+      setLoading(true);
 
-    const fetchRoute = async () => {
-      const res = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${order.pickup.lng},${order.pickup.lat};${order.drop.lng},${order.drop.lat}?overview=full&geometries=geojson`
+      const [orderRes, ridersRes] = await Promise.all([
+        httpClient.get(`/api/vendor/orders/${orderId}`),
+        httpClient.get(`/api/vendor/riders`),
+      ]);
+
+      setOrder(orderRes.data.data);
+      setRiders(ridersRes.data.data || []);
+    } catch (err) {
+      console.error(err);
+      showToast("danger", "Failed to load order details");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ===============================
+     ASSIGN RIDER
+  ================================ */
+  async function assignRider(riderId) {
+    setAssigning(true);
+    try {
+      await httpClient.patch(
+        `/api/vendor/orders/${order.orderId}/assign`,
+        { riderId }
       );
-      const data = await res.json();
-
-      if (data.routes?.length) {
-        setRoute(
-          data.routes[0].geometry.coordinates.map(
-            ([lng, lat]) => [lat, lng]
-          )
-        );
-      }
-    };
-
-    fetchRoute();
-  }, [order]);
-
-  /* ===============================
-     MAP FIX
-================================ */
-  useEffect(() => {
-    if (mapRef.current) {
-      setTimeout(() => mapRef.current.invalidateSize(), 200);
+      showToast("success", "Rider assigned");
+      loadData();
+    } catch {
+      showToast("danger", "Rider assignment failed");
+    } finally {
+      setAssigning(false);
     }
-  }, []);
+  }
 
   /* ===============================
-     SAVE ORDER (EDIT MODE)
-================================ */
-  const handleSave = async () => {
+     CANCEL ORDER
+  ================================ */
+  async function cancelOrder() {
+    if (!window.confirm("Cancel this order?")) return;
     try {
-      await updateVendorOrder(orderId, {
-        dropAddress: form.drop.address.full,
-        dropLat: form.drop.lat,
-        dropLng: form.drop.lng,
-        customerName: form.customer.name,
-        customerPhone: form.customer.phone,
-        notes: form.notes,
-      });
-
-      alert("Order updated");
-    } catch (err) {
-      console.error("Update failed", err);
-      alert("Failed to update order");
+      await httpClient.patch(
+        `/api/vendor/orders/${order.orderId}/cancel`
+      );
+      showToast("success", "Order cancelled");
+      loadData();
+    } catch {
+      showToast("danger", "Cannot cancel order");
     }
-  };
+  }
 
   /* ===============================
-     ASSIGN DRIVER
-================================ */
-  const handleAssign = async () => {
-    if (!assignedDriver) return;
-
-    try {
-      await assignDriverToOrder(orderId, assignedDriver.id);
-      alert("Driver assigned");
-    } catch (err) {
-      console.error("Assign failed", err);
-      alert("Failed to assign driver");
-    }
-  };
-
+     LOADING STATE
+  ================================ */
   if (loading) {
     return (
-      <div className="text-center py-5 text-muted">
-        Loading order details...
+      <div className="p-5 text-center">
+        <div className="spinner-border" />
+        <div className="mt-2">Loading order…</div>
       </div>
     );
   }
 
-  if (!order) {
-    return (
-      <div className="text-center py-5 text-danger">
-        Order not found
-      </div>
-    );
-  }
+  if (!order) return null;
 
+  const route = [
+    [order.pickup.lat, order.pickup.lng],
+    [order.drop.lat, order.drop.lng],
+  ];
+
+  /* ===============================
+     UI
+  ================================ */
   return (
-    <div>
-      {/* HEADER */}
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div className="d-flex gap-2 align-items-center">
+    <div className="container-fluid p-4">
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`toast show position-fixed top-0 end-0 m-3 text-bg-${toast.type}`}
+          style={{ zIndex: 9999 }}
+        >
+          <div className="toast-body">{toast.msg}</div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
           <button
-            className="btn btn-light btn-sm"
+            className="btn btn-sm btn-outline-secondary mb-2"
             onClick={() => navigate(-1)}
           >
             ← Back
           </button>
-          <h5 className="fw-semibold mb-0">
+          <h4 className="fw-bold mb-0">
             Order #{order.orderId}
-          </h5>
+          </h4>
+          <span className="badge bg-info mt-1">
+            {order.status}
+          </span>
         </div>
 
-        {!isEditable && (
-          <span className="badge bg-secondary">
-            View Only
-          </span>
-        )}
+        <div className="d-flex gap-2">
+          {order.status === "NEW" && (
+            <button
+              className="btn btn-outline-danger"
+              onClick={cancelOrder}
+            >
+              Cancel Order
+            </button>
+          )}
+        </div>
       </div>
 
-      <span className="badge bg-primary-subtle text-primary mb-3">
-        {order.status.replaceAll("_", " ")}
-      </span>
-
       <div className="row g-4">
-        {/* MAP */}
-        <div className="col-lg-8">
-          <div className="card">
+        {/* ================= MAP ================= */}
+        <div className="col-xl-8">
+          <div className="card shadow-sm">
             <div className="card-body">
+              <h6 className="fw-semibold mb-3">
+                Route & Location
+              </h6>
+
               <MapContainer
-                center={[order.pickup.lat, order.pickup.lng]}
+                center={[
+                  order.pickup.lat,
+                  order.pickup.lng,
+                ]}
                 zoom={13}
-                style={{ height: 360 }}
-                whenCreated={(map) =>
-                  (mapRef.current = map)
-                }
+                style={{ height: 450 }}
               >
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+
                 <Marker
                   position={[
                     order.pickup.lat,
@@ -215,123 +194,99 @@ export default function OrderDetails() {
                     order.drop.lng,
                   ]}
                 />
-                {assignedDriver && (
-                  <Marker
-                    position={[
-                      assignedDriver.lat,
-                      assignedDriver.lng,
-                    ]}
-                  />
-                )}
-                {route.length > 0 && (
-                  <Polyline positions={route} />
-                )}
+
+                <Polyline
+                  positions={route}
+                  pathOptions={{ color: "#0d6efd" }}
+                />
               </MapContainer>
+            </div>
+          </div>
+
+          {/* Order Summary */}
+          <div className="card shadow-sm mt-3">
+            <div className="card-body">
+              <h6 className="fw-semibold mb-3">
+                Order Details
+              </h6>
+
+              <div className="row">
+                <div className="col-md-6">
+                  <div className="text-muted small">
+                    Customer
+                  </div>
+                  <div className="fw-semibold">
+                    {order.customer?.name}
+                  </div>
+                  <div>{order.customer?.phone}</div>
+                </div>
+
+                <div className="col-md-6">
+                  <div className="text-muted small">
+                    Notes
+                  </div>
+                  <div>{order.notes || "-"}</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* DETAILS */}
-        <div className="col-lg-4">
-          <div className="card mb-3">
+        {/* ================= RIGHT PANEL ================= */}
+        <div className="col-xl-4">
+          {/* Assigned Rider */}
+          <div className="card shadow-sm mb-3">
             <div className="card-body">
               <h6 className="fw-semibold mb-2">
-                Customer
+                Assigned Rider
               </h6>
 
-              <input
-                className="form-control mb-2"
-                disabled={!isEditable}
-                value={form.customer.name}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    customer: {
-                      ...form.customer,
-                      name: e.target.value,
-                    },
-                  })
-                }
-              />
-
-              <input
-                className="form-control mb-2"
-                disabled={!isEditable}
-                value={form.customer.phone}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    customer: {
-                      ...form.customer,
-                      phone: e.target.value,
-                    },
-                  })
-                }
-              />
-
-              <textarea
-                className="form-control"
-                rows={2}
-                disabled={!isEditable}
-                value={form.notes || ""}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    notes: e.target.value,
-                  })
-                }
-              />
-
-              {isEditable && (
-                <button
-                  className="btn btn-dark btn-sm w-100 mt-3"
-                  onClick={handleSave}
-                >
-                  Save Changes
-                </button>
+              {order.assignedRiderId ? (
+                <div className="fw-semibold">
+                  {order.assignedRiderId}
+                </div>
+              ) : (
+                <span className="text-muted">
+                  Not assigned
+                </span>
               )}
             </div>
           </div>
 
-          {isEditable && (
-            <div className="card">
-              <div className="card-body">
-                <h6 className="fw-semibold mb-2">
-                  Assign Driver
-                </h6>
+          {/* Assign Rider */}
+          <div className="card shadow-sm">
+            <div className="card-body">
+              <h6 className="fw-semibold mb-2">
+                Available Riders
+              </h6>
 
-                {drivers.map((d) => (
-                  <div
-                    key={d.id}
-                    className={`border rounded p-2 mb-2 ${
-                      assignedDriver?.id === d.id
-                        ? "border-primary"
-                        : ""
-                    }`}
-                    onClick={() =>
-                      setAssignedDriver(d)
-                    }
-                    style={{ cursor: "pointer" }}
-                  >
-                    <div className="fw-semibold">
-                      {d.name}
-                    </div>
-                    <div className="text-muted small">
-                      {d.phone}
-                    </div>
-                  </div>
-                ))}
-
-                <button
-                  className="btn btn-dark btn-sm w-100"
-                  disabled={!assignedDriver}
-                  onClick={handleAssign}
+              {riders.map((r) => (
+                <div
+                  key={r.riderId}
+                  className="d-flex justify-content-between align-items-center border rounded p-2 mb-2"
                 >
-                  Assign Driver
-                </button>
-              </div>
+                  <div>
+                    <div className="fw-semibold">
+                      {r.name}
+                    </div>
+                    <small className="text-muted">
+                      {r.phone}
+                    </small>
+                  </div>
+
+                  <button
+                    className="btn btn-sm btn-dark"
+                    disabled={assigning}
+                    onClick={() =>
+                      assignRider(r.riderId)
+                    }
+                  >
+                    Assign
+                  </button>
+                </div>
+              ))}
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

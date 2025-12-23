@@ -1,194 +1,206 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { getVendorOrders } from "../../../api/vendor.orders.api";
+import { useNavigate } from "react-router-dom";
+import { Eye, XCircle } from "lucide-react";
 
+import {
+  getVendorOrders,
+  cancelVendorOrder,
+} from "../../../api/vendor.orders.api";
+
+/**
+ * Vendor Orders List
+ * - Backend is source of truth
+ * - Vendor derived from token
+ * - Empty array is a VALID response
+ */
 export default function Orders() {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-
   const navigate = useNavigate();
 
-  /* ===============================
-     LOAD ORDERS (API)
-  ================================ */
-  const loadOrders = async () => {
-    try {
-      setLoading(true);
-      const res = await getVendorOrders();
-      setOrders(res.data?.data?.items || []);
-    } catch (err) {
-      console.error("Failed to load orders", err);
-      setOrders([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     loadOrders();
   }, []);
 
-  /* ===============================
-     FILTER (FRONTEND ONLY FOR NOW)
-  ================================ */
-  const filteredOrders = orders.filter((o) =>
-    o.orderId?.toLowerCase().includes(search.toLowerCase())
-  );
+  async function loadOrders() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const res = await getVendorOrders({
+        page: 1,
+        limit: 20,
+      });
+
+      /**
+       * Backend may return:
+       * 1) { success: true, data: [] }
+       * 2) []
+       */
+      let ordersData = [];
+
+      if (Array.isArray(res?.data)) {
+        // Case: direct array
+        ordersData = res.data;
+      } else if (
+        res?.data?.success === true &&
+        Array.isArray(res.data.data)
+      ) {
+        // Case: wrapped response
+        ordersData = res.data.data;
+      } else {
+        console.error("Unexpected orders response:", res?.data);
+        throw new Error("Invalid orders response");
+      }
+
+      setOrders(ordersData);
+    } catch (err) {
+      console.error("Load orders failed:", err);
+      setError("Failed to load orders");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCancel(orderId) {
+    const ok = window.confirm(
+      "Cancel this order? This action cannot be undone."
+    );
+    if (!ok) return;
+
+    try {
+      await cancelVendorOrder(orderId);
+      await loadOrders();
+    } catch {
+      alert("Order cannot be cancelled");
+    }
+  }
 
   return (
-    <div>
-      {/* Page header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h4 className="fw-semibold mb-0">All Orders</h4>
-
-        <div className="d-flex gap-2">
-          <button className="btn btn-outline-secondary btn-sm">
-            Export
-          </button>
-          <button
-            className="btn btn-dark btn-sm"
-            onClick={() =>
-              navigate("/vendor/orders/create")
-            }
-          >
-            + New Request
-          </button>
-        </div>
+    <div className="container-fluid p-4">
+      {/* Header */}
+      <div className="mb-4">
+        <h4 className="fw-semibold mb-0">Orders</h4>
+        <small className="text-muted">
+          Manage and track your delivery orders
+        </small>
       </div>
 
-      {/* Filters */}
-      <div className="card mb-4">
-        <div className="card-body">
-          <div className="row g-2 align-items-center">
-            <div className="col-md-6">
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Search order ID..."
-                value={search}
-                onChange={(e) =>
-                  setSearch(e.target.value)
-                }
-              />
-            </div>
+      {error && <div className="alert alert-danger">{error}</div>}
 
-            <div className="col-md-3">
-              <select className="form-select" disabled>
-                <option>Status: All</option>
-              </select>
-            </div>
-
-            <div className="col-md-3">
-              <select className="form-select" disabled>
-                <option>Date: Last 30 Days</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Orders Table */}
-      <div className="card">
+      <div className="card shadow-sm border-0">
         <div className="table-responsive">
           <table className="table align-middle mb-0">
             <thead className="table-light">
               <tr>
-                <th>Order ID</th>
+                <th>Order</th>
                 <th>Customer</th>
+                <th>Pickup</th>
+                <th>Drop</th>
                 <th>Status</th>
-                <th>Assigned Driver</th>
-                <th>Created At</th>
-                <th>Distance</th>
-                <th>Store Location</th>
-                <th>Customer Location</th>
-                <th></th>
+                <th>Rider</th>
+                <th className="text-end">Actions</th>
               </tr>
             </thead>
 
             <tbody>
-              {loading && (
+              {loading ? (
                 <tr>
-                  <td
-                    colSpan={9}
-                    className="text-center py-4 text-muted"
-                  >
-                    Loading orders...
+                  <td colSpan="7" className="text-center py-4">
+                    Loading orders…
                   </td>
                 </tr>
-              )}
-
-              {!loading &&
-                filteredOrders.map((order) => (
-                  <tr key={order.orderId}>
-                    <td>#{order.orderId}</td>
-
+              ) : orders.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="text-center py-4">
+                    No orders found
+                  </td>
+                </tr>
+              ) : (
+                orders.map((o) => (
+                  <tr key={o.orderId}>
                     <td>
-                      {order.customerName || "—"}
-                      <div className="text-muted small">
-                        {order.customerArea || ""}
-                      </div>
+                      <strong>{o.orderId}</strong>
+                      <br />
+                      <small className="text-muted">
+                        {new Date(o.createdAt).toLocaleString()}
+                      </small>
                     </td>
 
                     <td>
-                      <span className="badge bg-secondary-subtle text-secondary">
-                        {order.status || "NEW"}
+                      {o.customer?.name || "-"}
+                      <br />
+                      <small className="text-muted">
+                        {o.customer?.phone || "-"}
+                      </small>
+                    </td>
+
+                    <td>
+                      <small>
+                        {o.pickup?.address || "Store Pickup"}
+                      </small>
+                    </td>
+
+                    <td>
+                      <small>
+                        {o.drop?.address || "Customer Location"}
+                      </small>
+                    </td>
+
+                    <td>
+                      <span
+                        className={`badge ${
+                          o.status === "NEW"
+                            ? "bg-secondary"
+                            : o.status === "ASSIGNED"
+                            ? "bg-primary"
+                            : o.status === "ON_THE_WAY"
+                            ? "bg-warning text-dark"
+                            : o.status === "DELIVERED"
+                            ? "bg-success"
+                            : "bg-danger"
+                        }`}
+                      >
+                        {o.status}
                       </span>
                     </td>
 
                     <td>
-                      {order.driverName || "Unassigned"}
+                      {o.assignedRiderId ? (
+                        o.assignedRiderId
+                      ) : (
+                        <span className="text-muted">Unassigned</span>
+                      )}
                     </td>
 
-                    <td className="text-muted small">
-                      {order.createdAt
-                        ? new Date(
-                            order.createdAt
-                          ).toLocaleString()
-                        : "—"}
-                    </td>
-
-                    <td>
-                      {order.distance
-                        ? `${order.distance} KM`
-                        : "—"}
-                    </td>
-
-                    <td className="text-muted small">
-                      {order.storeName || "—"}
-                    </td>
-
-                    <td className="text-muted small">
-                      {order.customerLocation || "—"}
-                    </td>
-
-                    <td>
-                      <Link
-                        to={`/vendor/orders/${order.orderId}`}
-                        className="btn btn-link btn-sm text-decoration-none"
+                    <td className="text-end">
+                      <button
+                        className="btn btn-sm btn-outline-primary me-2"
+                        onClick={() =>
+                          navigate(`/vendor/orders/${o.orderId}`)
+                        }
                       >
-                        View Details
-                      </Link>
+                        <Eye size={16} />
+                      </button>
+
+                      {o.status === "NEW" && (
+                        <button
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() =>
+                            handleCancel(o.orderId)
+                          }
+                        >
+                          <XCircle size={16} />
+                        </button>
+                      )}
                     </td>
                   </tr>
-                ))}
-
-              {!loading && filteredOrders.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={9}
-                    className="text-center text-muted py-4"
-                  >
-                    No orders found
-                  </td>
-                </tr>
+                ))
               )}
             </tbody>
           </table>
-        </div>
-
-        <div className="card-footer text-muted small">
-          Showing {filteredOrders.length} orders
         </div>
       </div>
     </div>
