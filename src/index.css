@@ -1,0 +1,16 @@
+.dashboard-header {
+  display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;
+}
+.dashboard-stats {
+  display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;
+}
+.dashboard-stat {
+  background:#fff;border-radius:14px;padding:1rem;
+  box-shadow:0 6px 20px rgba(0,0,0,.04);
+}
+.stat-label {
+  font-size:.8rem;color:#6c757d;
+}
+.stat-value {
+  font-size:1.9rem;font-weight:600;
+}

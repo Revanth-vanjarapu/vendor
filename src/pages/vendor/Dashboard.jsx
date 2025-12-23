@@ -3,9 +3,11 @@ import { useNavigate } from "react-router-dom";
 
 import { getVendorStores } from "../../api/vendor.stores.api";
 import { getVendorOrders } from "../../api/vendor.orders.api";
+import { useSocket } from "../../hooks/useSocket";
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const socket = useSocket();
 
   const [storesCount, setStoresCount] = useState(0);
   const [orders, setOrders] = useState([]);
@@ -13,35 +15,25 @@ export default function Dashboard() {
   const [error, setError] = useState("");
 
   /* ===============================
-     LOAD DASHBOARD DATA (SAFE)
+     INITIAL LOAD (REST)
   ================================ */
   const loadDashboard = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
 
-      /* ✅ STORES (WORKING API) */
       const storesRes = await getVendorStores();
-      setStoresCount(
-        storesRes?.data?.data?.items?.length || 0
-      );
+      setStoresCount(storesRes?.data?.data?.items?.length || 0);
 
-      /* ⚠️ ORDERS (API NOT READY YET) */
       try {
         const ordersRes = await getVendorOrders();
-        setOrders(
-          ordersRes?.data?.data?.items || []
-        );
-      } catch (err) {
-        console.warn(
-          "Orders API not ready yet",
-          err?.response?.status
-        );
-        setOrders([]); // SAFE FALLBACK
+        setOrders(ordersRes?.data?.data?.items || []);
+      } catch {
+        setOrders([]);
       }
     } catch (err) {
       console.error("Dashboard load failed", err);
-      setError("Failed to load dashboard data");
+      setError("Failed to load dashboard");
     } finally {
       setLoading(false);
     }
@@ -52,26 +44,49 @@ export default function Dashboard() {
   }, [loadDashboard]);
 
   /* ===============================
+     REALTIME UPDATES (SOCKET)
+  ================================ */
+  useEffect(() => {
+    if (!socket) return;
+
+    const onOrderUpdate = (order) => {
+      console.log("📡 Dashboard realtime:", order);
+
+      setOrders((prev) => {
+        const exists = prev.find(
+          (o) => o.orderId === order.orderId
+        );
+
+        if (exists) {
+          return prev.map((o) =>
+            o.orderId === order.orderId ? order : o
+          );
+        }
+
+        return [order, ...prev];
+      });
+    };
+
+    socket.on("vendor:order_updated", onOrderUpdate);
+
+    return () => {
+      socket.off("vendor:order_updated", onOrderUpdate);
+    };
+  }, [socket]);
+
+  /* ===============================
      DERIVED METRICS
   ================================ */
-  const newOrders = orders.filter(
-    (o) => o.status === "NEW"
-  ).length;
+  const newOrders = orders.filter(o => o.status === "NEW").length;
 
-  const inTransitOrders = orders.filter((o) =>
+  const inTransit = orders.filter(o =>
     ["ASSIGNED", "PICKED_UP", "ON_THE_WAY"].includes(o.status)
   ).length;
 
-  const deliveredOrders = orders.filter(
-    (o) => o.status === "DELIVERED"
-  ).length;
+  const delivered = orders.filter(o => o.status === "DELIVERED").length;
 
   const recentOrders = [...orders]
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt) -
-        new Date(a.createdAt)
-    )
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 5);
 
   /* ===============================
@@ -80,7 +95,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="text-center py-5 text-muted">
-        Loading dashboard...
+        Loading dashboard…
       </div>
     );
   }
@@ -97,31 +112,29 @@ export default function Dashboard() {
      UI
   ================================ */
   return (
-    <div>
+    <div className="dashboard">
       {/* HEADER */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="dashboard-header">
         <h4 className="fw-semibold mb-0">Dashboard</h4>
 
         <button
           className="btn btn-dark btn-sm"
-          onClick={() =>
-            navigate("/vendor/orders/create")
-          }
+          onClick={() => navigate("/vendor/orders/create")}
         >
           + New Request
         </button>
       </div>
 
       {/* STATS */}
-      <div className="row g-3 mb-4">
-        <StatCard title="New Requests" value={newOrders} />
-        <StatCard title="In Transit" value={inTransitOrders} />
-        <StatCard title="Delivered" value={deliveredOrders} />
-        <StatCard title="Stores" value={storesCount} />
+      <div className="dashboard-stats">
+        <StatCard label="New Orders" value={newOrders} />
+        <StatCard label="In Transit" value={inTransit} />
+        <StatCard label="Delivered" value={delivered} />
+        <StatCard label="Stores" value={storesCount} />
       </div>
 
       {/* RECENT ORDERS */}
-      <div className="card">
+      <div className="card dashboard-card">
         <div className="card-header bg-white fw-semibold">
           Recent Orders
         </div>
@@ -130,7 +143,7 @@ export default function Dashboard() {
           <table className="table align-middle mb-0">
             <thead className="table-light">
               <tr>
-                <th>Order ID</th>
+                <th>Order</th>
                 <th>Status</th>
                 <th>Created</th>
                 <th></th>
@@ -138,44 +151,39 @@ export default function Dashboard() {
             </thead>
 
             <tbody>
-              {recentOrders.map((order) => (
-                <tr key={order.orderId}>
-                  <td>#{order.orderId}</td>
-
-                  <td>
-                    <span className="badge bg-secondary-subtle text-secondary">
-                      {order.status}
-                    </span>
-                  </td>
-
-                  <td className="text-muted small">
-                    {new Date(order.createdAt).toLocaleString()}
-                  </td>
-
-                  <td>
-                    <button
-                      className="btn btn-link btn-sm text-decoration-none"
-                      onClick={() =>
-                        navigate(
-                          `/vendor/orders/${order.orderId}`
-                        )
-                      }
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-
-              {recentOrders.length === 0 && (
+              {recentOrders.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={4}
-                    className="text-center text-muted py-4"
-                  >
+                  <td colSpan={4} className="text-center text-muted py-4">
                     No orders yet
                   </td>
                 </tr>
+              ) : (
+                recentOrders.map((o) => (
+                  <tr key={o.orderId}>
+                    <td>#{o.orderId}</td>
+
+                    <td>
+                      <span className="badge bg-dark-subtle text-dark">
+                        {o.status.replaceAll("_", " ")}
+                      </span>
+                    </td>
+
+                    <td className="text-muted small">
+                      {new Date(o.createdAt).toLocaleString()}
+                    </td>
+
+                    <td>
+                      <button
+                        className="btn btn-link btn-sm text-decoration-none"
+                        onClick={() =>
+                          navigate(`/vendor/orders/${o.orderId}`)
+                        }
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -186,21 +194,13 @@ export default function Dashboard() {
 }
 
 /* ===============================
-   SMALL STAT CARD
+   STAT CARD
 ================================ */
-function StatCard({ title, value }) {
+function StatCard({ label, value }) {
   return (
-    <div className="col-md-3">
-      <div className="card h-100">
-        <div className="card-body">
-          <div className="text-muted small">
-            {title}
-          </div>
-          <h4 className="fw-semibold mb-0">
-            {value}
-          </h4>
-        </div>
-      </div>
+    <div className="dashboard-stat">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
     </div>
   );
 }

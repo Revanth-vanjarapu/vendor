@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   getVendorRiders,
   getVendorRiderById,
-  assignRiderToStore,
 } from "../../api/vendor.riders.api";
 import { getVendorStores } from "../../api/vendor.stores.api";
 import { RefreshCcw, Eye, X } from "lucide-react";
@@ -49,18 +48,6 @@ export default function Riders() {
   }, []);
 
   /* ===============================
-     STORE ASSIGN
-  ================================ */
-  const handleStoreChange = async (riderId, storeId) => {
-    try {
-      await assignRiderToStore(riderId, storeId || null);
-      loadData();
-    } catch {
-      alert("Failed to assign rider");
-    }
-  };
-
-  /* ===============================
      VIEW MODAL
   ================================ */
   const openViewModal = async (riderId) => {
@@ -78,6 +65,13 @@ export default function Riders() {
       setModalLoading(false);
     }
   };
+
+  /* ===============================
+     HELPERS
+  ================================ */
+  const getStoreName = (storeId) =>
+    stores.find((s) => s.storeId === storeId)?.name ||
+    storeId;
 
   /* ===============================
      UI
@@ -150,24 +144,17 @@ export default function Riders() {
                       </div>
                     </td>
 
+                    {/* STORE (TEXT ONLY) */}
                     <td>
-                      <select
-                        className="form-select form-select-sm"
-                        value={r.storeId || ""}
-                        onChange={(e) =>
-                          handleStoreChange(
-                            r.riderId,
-                            e.target.value
-                          )
-                        }
-                      >
-                        <option value="">Unassigned</option>
-                        {stores.map((s) => (
-                          <option key={s.storeId} value={s.storeId}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
+                      {r.storeId ? (
+                        <span className="fw-medium">
+                          {getStoreName(r.storeId)}
+                        </span>
+                      ) : (
+                        <span className="text-muted">
+                          Unassigned
+                        </span>
+                      )}
                     </td>
 
                     <td>
@@ -182,14 +169,13 @@ export default function Riders() {
                       </span>
                     </td>
 
+                    {/* ACTION */}
                     <td className="text-end">
-                      <button
-                        className="btn btn-outline-primary btn-sm d-flex align-items-center gap-1 ms-auto"
+                      <Eye
+                        size={18}
+                        style={{ cursor: "pointer" }}
                         onClick={() => openViewModal(r.riderId)}
-                      >
-                        <Eye size={14} />
-                        View
-                      </button>
+                      />
                     </td>
                   </tr>
                 ))}
@@ -207,7 +193,7 @@ export default function Riders() {
       </div>
 
       {/* ===============================
-         CUSTOM MODAL (NO FREEZE)
+         CUSTOM MODAL
       ================================ */}
       {showModal && (
         <div
@@ -276,9 +262,24 @@ export default function Riders() {
                     <p><b>Email:</b> {selectedRider.email || "—"}</p>
                     <p><b>Status:</b> {selectedRider.status}</p>
                     <p><b>Approval:</b> {selectedRider.isApprove}</p>
-                    <p><b>Store:</b> {selectedRider.storeId || "Unassigned"}</p>
-                    <p><b>Created:</b> {new Date(selectedRider.createdAt).toLocaleString()}</p>
-                    <p><b>Updated:</b> {new Date(selectedRider.updatedAt).toLocaleString()}</p>
+                    <p>
+                      <b>Store:</b>{" "}
+                      {selectedRider.storeId
+                        ? getStoreName(selectedRider.storeId)
+                        : "Unassigned"}
+                    </p>
+                    <p>
+                      <b>Created:</b>{" "}
+                      {new Date(
+                        selectedRider.createdAt
+                      ).toLocaleString()}
+                    </p>
+                    <p>
+                      <b>Updated:</b>{" "}
+                      {new Date(
+                        selectedRider.updatedAt
+                      ).toLocaleString()}
+                    </p>
                   </div>
                 </div>
               )}

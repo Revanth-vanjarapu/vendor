@@ -1,18 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   MapContainer,
   TileLayer,
   Marker,
   Polyline,
+  Popup,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import httpClient from "../../../utils/httpClient";
+import {
+  getVendorOrderById,
+  assignRiderToOrder,
+  cancelVendorOrder,
+} from "../../../api/vendor.orders.api";
+import { getVendorRiders } from "../../../api/vendor.riders.api";
+import { useSocket } from "../../../hooks/useSocket";
 
 /* ===============================
-   Leaflet marker fix
+   LEAFLET ICON FIX
 ================================ */
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -24,269 +31,295 @@ L.Icon.Default.mergeOptions({
     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
+/* ===============================
+   RIDER ICON
+================================ */
+const riderIcon = new L.Icon({
+  iconUrl: "/rider-marker.png",
+  iconSize: [36, 36],
+  iconAnchor: [18, 36],
+});
+
 export default function OrderDetails() {
   const { orderId } = useParams();
   const navigate = useNavigate();
+  const mapRef = useRef(null);
+  const socket = useSocket();
 
   const [order, setOrder] = useState(null);
   const [riders, setRiders] = useState([]);
+  const [selectedRider, setSelectedRider] = useState(null);
+  const [route, setRoute] = useState([]);
+  const [riderPosition, setRiderPosition] = useState(null);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
 
-  const [toast, setToast] = useState(null);
-  const showToast = (type, msg) => {
-    setToast({ type, msg });
-    setTimeout(() => setToast(null), 3000);
-  };
-
   /* ===============================
-     LOAD DATA
-  ================================ */
+     LOAD ORDER + RIDERS
+================================ */
   useEffect(() => {
-    loadData();
+    async function load() {
+      try {
+        setLoading(true);
+
+        const [orderRes, ridersRes] = await Promise.all([
+          getVendorOrderById(orderId),
+          getVendorRiders(),
+        ]);
+
+        // Order (safe)
+        setOrder(orderRes?.data || null);
+
+        // Riders (VERY IMPORTANT FIX)
+        const ridersList = Array.isArray(ridersRes?.data)
+          ? ridersRes.data
+          : Array.isArray(ridersRes?.data?.data)
+          ? ridersRes.data.data
+          : [];
+
+        setRiders(ridersList);
+      } catch (err) {
+        console.error("Failed to load order details", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
   }, [orderId]);
 
-  async function loadData() {
-    try {
-      setLoading(true);
+  /* ===============================
+     OSRM ROUTE
+================================ */
+  useEffect(() => {
+    if (!order?.pickup || !order?.drop) return;
 
-      const [orderRes, ridersRes] = await Promise.all([
-        httpClient.get(`/api/vendor/orders/${orderId}`),
-        httpClient.get(`/api/vendor/riders`),
-      ]);
+    async function fetchRoute() {
+      try {
+        const res = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${order.pickup.lng},${order.pickup.lat};${order.drop.lng},${order.drop.lat}?overview=full&geometries=geojson`
+        );
+        const data = await res.json();
 
-      setOrder(orderRes.data.data);
-      setRiders(ridersRes.data.data || []);
-    } catch (err) {
-      console.error(err);
-      showToast("danger", "Failed to load order details");
-    } finally {
-      setLoading(false);
+        if (data?.routes?.length) {
+          setRoute(
+            data.routes[0].geometry.coordinates.map(
+              ([lng, lat]) => [lat, lng]
+            )
+          );
+        }
+      } catch (err) {
+        console.error("OSRM error", err);
+      }
     }
+
+    fetchRoute();
+  }, [order]);
+
+  /* ===============================
+     LIVE RIDER TRACKING (SOCKET)
+================================ */
+/* ===============================
+   LIVE RIDER TRACKING (SOCKET)
+================================ */
+useEffect(() => {
+  if (!socket || !order?.assignedRiderId) return;
+
+  const onLocationUpdate = (data) => {
+    console.log("📍 SOCKET DATA RECEIVED:", data);
+
+    // REQUIRED VALIDATION
+    if (
+      typeof data?.lat !== "number" ||
+      typeof data?.lng !== "number"
+    ) {
+      console.warn("❌ Invalid location payload", data);
+      return;
+    }
+
+    // OPTIONAL ORDER CHECK (DO NOT BLOCK UI)
+    if (data?.orderId && data.orderId !== order.orderId) {
+      console.warn("⚠️ Different order update ignored");
+      return;
+    }
+
+    console.log("✅ Rider position updated", data.lat, data.lng);
+    setRiderPosition([data.lat, data.lng]);
+  };
+
+  // 🔥 FIX: correct backend event name
+  socket.on("rider:location", onLocationUpdate);
+
+  return () => {
+    socket.off("rider:location", onLocationUpdate);
+  };
+}, [socket, order?.assignedRiderId, order?.orderId]);
+
+  /* ===============================
+     MAP FIX
+================================ */
+  useEffect(() => {
+    if (mapRef.current) {
+      setTimeout(() => mapRef.current.invalidateSize(), 300);
+    }
+  }, []);
+/* ===============================
+   AUTO PAN MAP TO RIDER
+================================ */
+useEffect(() => {
+  if (mapRef.current && riderPosition) {
+    mapRef.current.setView(riderPosition, 15, {
+      animate: true,
+    });
   }
+}, [riderPosition]);
 
   /* ===============================
      ASSIGN RIDER
-  ================================ */
-  async function assignRider(riderId) {
-    setAssigning(true);
+================================ */
+  const handleAssignRider = async () => {
+    if (!selectedRider) return;
+
     try {
-      await httpClient.patch(
-        `/api/vendor/orders/${order.orderId}/assign`,
-        { riderId }
-      );
-      showToast("success", "Rider assigned");
-      loadData();
-    } catch {
-      showToast("danger", "Rider assignment failed");
+      setAssigning(true);
+      await assignRiderToOrder(order.orderId, selectedRider.riderId);
+      const refreshed = await getVendorOrderById(orderId);
+      setOrder(refreshed.data);
+    } catch (err) {
+      console.error("Assign rider failed", err);
     } finally {
       setAssigning(false);
     }
-  }
+  };
 
   /* ===============================
      CANCEL ORDER
-  ================================ */
-  async function cancelOrder() {
+================================ */
+  const handleCancel = async () => {
     if (!window.confirm("Cancel this order?")) return;
+
     try {
-      await httpClient.patch(
-        `/api/vendor/orders/${order.orderId}/cancel`
-      );
-      showToast("success", "Order cancelled");
-      loadData();
-    } catch {
-      showToast("danger", "Cannot cancel order");
+      await cancelVendorOrder(order.orderId);
+      const refreshed = await getVendorOrderById(orderId);
+      setOrder(refreshed.data);
+    } catch (err) {
+      console.error("Cancel failed", err);
     }
-  }
+  };
 
   /* ===============================
-     LOADING STATE
-  ================================ */
+     RENDER
+================================ */
   if (loading) {
+    return <div className="text-center py-5">Loading…</div>;
+  }
+
+  if (!order) {
     return (
-      <div className="p-5 text-center">
-        <div className="spinner-border" />
-        <div className="mt-2">Loading order…</div>
+      <div className="text-center py-5 text-danger">
+        Order not found
       </div>
     );
   }
 
-  if (!order) return null;
+  const showLiveTracking =
+    order.status === "ASSIGNED" ||
+    order.status === "ON_THE_WAY";
 
-  const route = [
-    [order.pickup.lat, order.pickup.lng],
-    [order.drop.lat, order.drop.lng],
-  ];
-
-  /* ===============================
-     UI
-  ================================ */
   return (
-    <div className="container-fluid p-4">
-      {/* Toast */}
-      {toast && (
-        <div
-          className={`toast show position-fixed top-0 end-0 m-3 text-bg-${toast.type}`}
-          style={{ zIndex: 9999 }}
+    <div>
+      <div className="d-flex justify-content-between mb-3">
+        <button
+          className="btn btn-light btn-sm"
+          onClick={() => navigate(-1)}
         >
-          <div className="toast-body">{toast.msg}</div>
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <div>
-          <button
-            className="btn btn-sm btn-outline-secondary mb-2"
-            onClick={() => navigate(-1)}
-          >
-            ← Back
-          </button>
-          <h4 className="fw-bold mb-0">
-            Order #{order.orderId}
-          </h4>
-          <span className="badge bg-info mt-1">
-            {order.status}
-          </span>
-        </div>
-
-        <div className="d-flex gap-2">
-          {order.status === "NEW" && (
-            <button
-              className="btn btn-outline-danger"
-              onClick={cancelOrder}
-            >
-              Cancel Order
-            </button>
-          )}
-        </div>
+          ← Back
+        </button>
+        <span className="badge bg-dark">
+          {order.status.replaceAll("_", " ")}
+        </span>
       </div>
 
       <div className="row g-4">
-        {/* ================= MAP ================= */}
-        <div className="col-xl-8">
-          <div className="card shadow-sm">
-            <div className="card-body">
-              <h6 className="fw-semibold mb-3">
-                Route & Location
-              </h6>
+        <div className="col-lg-8">
+          <MapContainer
+            center={[order.pickup.lat, order.pickup.lng]}
+            zoom={13}
+            style={{ height: 420 }}
+            whenCreated={(map) => (mapRef.current = map)}
+          >
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-              <MapContainer
-                center={[
-                  order.pickup.lat,
-                  order.pickup.lng,
-                ]}
-                zoom={13}
-                style={{ height: 450 }}
-              >
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <Marker position={[order.pickup.lat, order.pickup.lng]}>
+              <Popup>Pickup</Popup>
+            </Marker>
 
-                <Marker
-                  position={[
-                    order.pickup.lat,
-                    order.pickup.lng,
-                  ]}
-                />
-                <Marker
-                  position={[
-                    order.drop.lat,
-                    order.drop.lng,
-                  ]}
-                />
+            <Marker position={[order.drop.lat, order.drop.lng]}>
+              <Popup>Drop</Popup>
+            </Marker>
 
-                <Polyline
-                  positions={route}
-                  pathOptions={{ color: "#0d6efd" }}
-                />
-              </MapContainer>
-            </div>
-          </div>
+            {route.length > 0 && <Polyline positions={route} />}
 
-          {/* Order Summary */}
-          <div className="card shadow-sm mt-3">
-            <div className="card-body">
-              <h6 className="fw-semibold mb-3">
-                Order Details
-              </h6>
-
-              <div className="row">
-                <div className="col-md-6">
-                  <div className="text-muted small">
-                    Customer
-                  </div>
-                  <div className="fw-semibold">
-                    {order.customer?.name}
-                  </div>
-                  <div>{order.customer?.phone}</div>
-                </div>
-
-                <div className="col-md-6">
-                  <div className="text-muted small">
-                    Notes
-                  </div>
-                  <div>{order.notes || "-"}</div>
-                </div>
-              </div>
-            </div>
-          </div>
+            {showLiveTracking && riderPosition && (
+              <Marker position={riderPosition} icon={riderIcon}>
+                <Popup>Rider is here</Popup>
+              </Marker>
+            )}
+          </MapContainer>
         </div>
 
-        {/* ================= RIGHT PANEL ================= */}
-        <div className="col-xl-4">
-          {/* Assigned Rider */}
-          <div className="card shadow-sm mb-3">
-            <div className="card-body">
-              <h6 className="fw-semibold mb-2">
-                Assigned Rider
-              </h6>
-
-              {order.assignedRiderId ? (
-                <div className="fw-semibold">
-                  {order.assignedRiderId}
-                </div>
-              ) : (
-                <span className="text-muted">
-                  Not assigned
-                </span>
-              )}
+        <div className="col-lg-4">
+          <div className="card p-3">
+            <h6>Customer</h6>
+            <div>{order.customer?.name}</div>
+            <div className="text-muted">
+              {order.customer?.phone}
             </div>
           </div>
 
-          {/* Assign Rider */}
-          <div className="card shadow-sm">
-            <div className="card-body">
-              <h6 className="fw-semibold mb-2">
-                Available Riders
-              </h6>
+          {order.status === "NEW" && (
+            <>
+              <div className="card p-3 mt-3">
+                <h6>Assign Rider</h6>
 
-              {riders.map((r) => (
-                <div
-                  key={r.riderId}
-                  className="d-flex justify-content-between align-items-center border rounded p-2 mb-2"
-                >
-                  <div>
-                    <div className="fw-semibold">
-                      {r.name}
-                    </div>
-                    <small className="text-muted">
-                      {r.phone}
-                    </small>
+                {riders.length === 0 && (
+                  <div className="text-muted small">
+                    No riders available
                   </div>
+                )}
 
-                  <button
-                    className="btn btn-sm btn-dark"
-                    disabled={assigning}
-                    onClick={() =>
-                      assignRider(r.riderId)
-                    }
+                {riders.map((r) => (
+                  <div
+                    key={r.riderId}
+                    className={`border p-2 mb-2 ${
+                      selectedRider?.riderId === r.riderId
+                        ? "border-dark"
+                        : ""
+                    }`}
+                    onClick={() => setSelectedRider(r)}
+                    style={{ cursor: "pointer" }}
                   >
-                    Assign
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+                    {r.name} – {r.phone}
+                  </div>
+                ))}
+
+                <button
+                  className="btn btn-dark btn-sm w-100"
+                  disabled={!selectedRider || assigning}
+                  onClick={handleAssignRider}
+                >
+                  Assign Rider
+                </button>
+              </div>
+
+              <button
+                className="btn btn-outline-danger btn-sm w-100 mt-2"
+                onClick={handleCancel}
+              >
+                Cancel Order
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

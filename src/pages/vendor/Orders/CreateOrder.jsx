@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  useMapEvents,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -39,19 +44,16 @@ export default function CreateOrder() {
   const [submitting, setSubmitting] = useState(false);
 
   /* ===============================
-     SINGLE ORDER STATE
+     SINGLE ORDER STATE (UNCHANGED)
   ================================ */
   const [single, setSingle] = useState({
     clientOrderId: "",
     customerName: "",
     phone: "",
-
     pickupLat: "",
     pickupLng: "",
-
     dropLat: "",
     dropLng: "",
-
     vehicleType: "BIKE",
     notes: "",
   });
@@ -73,25 +75,65 @@ export default function CreateOrder() {
     })();
   }, []);
 
-  const store = stores.find((s) => s.storeId === storeId);
+  const selectedStore = stores.find(
+    (s) => s.storeId === storeId
+  );
 
   /* ===============================
      STORE → PICKUP LAT/LNG
   ================================ */
   useEffect(() => {
-    if (!store) return;
+    if (!selectedStore) return;
     setSingle((p) => ({
       ...p,
-      pickupLat: store.lat,
-      pickupLng: store.lng,
+      pickupLat: selectedStore.lat,
+      pickupLng: selectedStore.lng,
     }));
-  }, [store]);
+  }, [selectedStore]);
+
+  /* ===============================
+     MAP CLICK HANDLER
+  ================================ */
+  function MapClickHandler() {
+    useMapEvents({
+      click(e) {
+        setSingle((p) => ({
+          ...p,
+          dropLat: e.latlng.lat,
+          dropLng: e.latlng.lng,
+        }));
+      },
+    });
+    return null;
+  }
+
+  /* ===============================
+     SEARCH LOCATION
+  ================================ */
+  const searchLocation = async (q) => {
+    if (!q) return;
+
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${q}`
+    );
+    const data = await res.json();
+
+    if (data.length) {
+      setSingle((p) => ({
+        ...p,
+        dropLat: Number(data[0].lat),
+        dropLng: Number(data[0].lon),
+      }));
+    }
+  };
 
   /* ===============================
      SUBMIT SINGLE
   ================================ */
   const submitSingle = async () => {
-    if (!store) return showToast("danger", "Select store");
+    if (!selectedStore)
+      return showToast("danger", "Select store");
+
     if (
       !single.customerName ||
       !single.phone ||
@@ -105,8 +147,7 @@ export default function CreateOrder() {
     try {
       const payload = {
         clientOrderId: single.clientOrderId || null,
-        storeId: store.storeId,
-
+        storeId: selectedStore.storeId,
         pickup: {
           lat: Number(single.pickupLat),
           lng: Number(single.pickupLng),
@@ -134,10 +175,11 @@ export default function CreateOrder() {
   };
 
   /* ===============================
-     PARSE BULK (TAB FORMAT)
+     PARSE BULK (UNCHANGED LOGIC)
   ================================ */
   const parseBulk = () => {
-    if (!store) return showToast("danger", "Select store first");
+    if (!stores.length)
+      return showToast("danger", "Stores not loaded");
 
     const lines = bulkText
       .split("\n")
@@ -155,27 +197,42 @@ export default function CreateOrder() {
         return;
       }
 
-      const [
-        clientOrderId,
-        customerName,
-        address,
-        dropLat,
-        dropLng,
-        phone,
-      ] = cols;
+      const storeName = cols[0];
+      const clientOrderId = cols[1];
+      const address = cols[2];
+      const latLng = cols[3];
+      const customerName = cols[4];
+      const phone = cols[5];
 
-      if (!dropLat || !dropLng) {
-        errors.push(`Line ${i + 1}: Lat/Lng required`);
+      const store = stores.find(
+        (s) =>
+          s.name.toLowerCase().trim() ===
+          storeName.toLowerCase().trim()
+      );
+
+      if (!store) {
+        errors.push(
+          `Line ${i + 1}: Store "${storeName}" not found`
+        );
+        return;
+      }
+
+      const [lat, lng] = (latLng || "").split(",");
+
+      if (!lat || !lng) {
+        errors.push(
+          `Line ${i + 1}: Invalid Lat,Lng`
+        );
         return;
       }
 
       parsed.push({
-        clientOrderId,
+        clientOrderId: clientOrderId || null,
         storeId: store.storeId,
         pickup: { lat: store.lat, lng: store.lng },
         drop: {
-          lat: Number(dropLat),
-          lng: Number(dropLng),
+          lat: Number(lat),
+          lng: Number(lng),
         },
         customer: {
           name: customerName,
@@ -191,7 +248,10 @@ export default function CreateOrder() {
     setBulkErrors(errors);
 
     if (!errors.length) {
-      showToast("success", `${parsed.length} orders ready`);
+      showToast(
+        "success",
+        `${parsed.length} orders ready`
+      );
     }
   };
 
@@ -222,7 +282,6 @@ export default function CreateOrder() {
   ================================ */
   return (
     <div className="container-fluid p-4">
-      {/* Toast */}
       {toast && (
         <div
           className={`toast show position-fixed top-0 end-0 m-3 text-bg-${toast.type}`}
@@ -234,21 +293,6 @@ export default function CreateOrder() {
 
       <h4 className="fw-semibold mb-4">Create Orders</h4>
 
-      {/* Store */}
-      <select
-        className="form-select mb-4"
-        value={storeId}
-        onChange={(e) => setStoreId(e.target.value)}
-      >
-        <option value="">Select Store</option>
-        {stores.map((s) => (
-          <option key={s.storeId} value={s.storeId}>
-            {s.name}
-          </option>
-        ))}
-      </select>
-
-      {/* Mode */}
       <div className="btn-group mb-4">
         <button
           className={`btn ${
@@ -281,6 +325,24 @@ export default function CreateOrder() {
                 <h6 className="fw-semibold mb-3">
                   Single Order
                 </h6>
+
+                <select
+                  className="form-select mb-2"
+                  value={storeId}
+                  onChange={(e) =>
+                    setStoreId(e.target.value)
+                  }
+                >
+                  <option value="">Select Store</option>
+                  {stores.map((s) => (
+                    <option
+                      key={s.storeId}
+                      value={s.storeId}
+                    >
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
 
                 <input
                   className="form-control mb-2"
@@ -317,25 +379,6 @@ export default function CreateOrder() {
                     })
                   }
                 />
-
-                <div className="row g-2 mb-2">
-                  <div className="col">
-                    <input
-                      className="form-control"
-                      placeholder="Pickup Lat"
-                      value={single.pickupLat}
-                      readOnly
-                    />
-                  </div>
-                  <div className="col">
-                    <input
-                      className="form-control"
-                      placeholder="Pickup Lng"
-                      value={single.pickupLng}
-                      readOnly
-                    />
-                  </div>
-                </div>
 
                 <div className="row g-2 mb-2">
                   <div className="col">
@@ -391,38 +434,49 @@ export default function CreateOrder() {
             </div>
           </div>
 
+          {/* MAP */}
           <div className="col-lg-6">
             <div className="card shadow-sm">
               <div className="card-body">
-                <h6 className="fw-semibold mb-2">
-                  Map Preview
-                </h6>
+                <input
+                  className="form-control mb-2"
+                  placeholder="Search location"
+                  onBlur={(e) =>
+                    searchLocation(e.target.value)
+                  }
+                />
 
                 <MapContainer
                   center={[
-                    single.dropLat || store?.lat || 17.44,
-                    single.dropLng || store?.lng || 78.37,
+                    single.dropLat ||
+                      selectedStore?.lat ||
+                      17.44,
+                    single.dropLng ||
+                      selectedStore?.lng ||
+                      78.37,
                   ]}
                   zoom={13}
-                  style={{ height: 320 }}
+                  style={{ height: 350 }}
                 >
                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                  {store && (
+                  <MapClickHandler />
+                  {selectedStore && (
                     <Marker
                       position={[
-                        store.lat,
-                        store.lng,
+                        selectedStore.lat,
+                        selectedStore.lng,
                       ]}
                     />
                   )}
-                  {single.dropLat && single.dropLng && (
-                    <Marker
-                      position={[
-                        single.dropLat,
-                        single.dropLng,
-                      ]}
-                    />
-                  )}
+                  {single.dropLat &&
+                    single.dropLng && (
+                      <Marker
+                        position={[
+                          single.dropLat,
+                          single.dropLng,
+                        ]}
+                      />
+                    )}
                 </MapContainer>
               </div>
             </div>
@@ -439,13 +493,13 @@ export default function CreateOrder() {
             </h6>
 
             <p className="text-muted small">
-              clientOrderId ⟶ Name ⟶ Address ⟶ DropLat ⟶ DropLng ⟶ Phone
+              Store Name ⟶ Order Id ⟶ Address ⟶ Lat,Lng ⟶
+              Customer Name ⟶ Phone ⟶ Status (optional)
             </p>
 
             <textarea
               className="form-control mb-3"
               rows={10}
-              placeholder="Paste from Excel / Sheets"
               value={bulkText}
               onChange={(e) =>
                 setBulkText(e.target.value)

@@ -11,7 +11,7 @@ import {
  * Vendor Orders List
  * - Backend is source of truth
  * - Vendor derived from token
- * - Empty array is a VALID response
+ * - Bootstrap-only UI (NO custom CSS)
  */
 export default function Orders() {
   const navigate = useNavigate();
@@ -34,24 +34,16 @@ export default function Orders() {
         limit: 20,
       });
 
-      /**
-       * Backend may return:
-       * 1) { success: true, data: [] }
-       * 2) []
-       */
       let ordersData = [];
 
       if (Array.isArray(res?.data)) {
-        // Case: direct array
         ordersData = res.data;
       } else if (
         res?.data?.success === true &&
         Array.isArray(res.data.data)
       ) {
-        // Case: wrapped response
         ordersData = res.data.data;
       } else {
-        console.error("Unexpected orders response:", res?.data);
         throw new Error("Invalid orders response");
       }
 
@@ -78,17 +70,63 @@ export default function Orders() {
     }
   }
 
+  /* ===============================
+     Helpers
+  ================================ */
+  const renderPickup = (o) =>
+    o.pickup?.address?.full ||
+    (o.pickup?.lat && o.pickup?.lng
+      ? `${o.pickup.lat}, ${o.pickup.lng}`
+      : "Store Pickup");
+
+  const renderDrop = (o) =>
+    o.drop?.address?.full ||
+    (o.drop?.lat && o.drop?.lng
+      ? `${o.drop.lat}, ${o.drop.lng}`
+      : "Customer Location");
+
+  const renderRider = (o) =>
+    o.assignedRider?.name ||
+    o.assignedRiderName ||
+    (o.assignedRiderId ? o.assignedRiderId : "Unassigned");
+
+  const statusClass = (status) => {
+    switch (status) {
+      case "NEW":
+      case "ASSIGNED":
+        return "bg-primary";
+      case "ON_THE_WAY":
+        return "bg-warning text-dark";
+      case "DELIVERED":
+        return "bg-success";
+      case "CANCELLED":
+        return "bg-danger";
+      default:
+        return "bg-secondary";
+    }
+  };
+
   return (
     <div className="container-fluid p-4">
       {/* Header */}
-      <div className="mb-4">
+      <div className="mb-4 d-flex justify-content-between align-items-center">
         <h4 className="fw-semibold mb-0">Orders</h4>
-        <small className="text-muted">
-          Manage and track your delivery orders
-        </small>
-      </div>
+        <button
+          className="btn btn-dark btn-sm"
+          onClick={() =>
+            navigate("/vendor/orders/create")
+          }
+        >
+          + New Request
+        </button>
+        </div>
+      
 
-      {error && <div className="alert alert-danger">{error}</div>}
+      {error && (
+        <div className="alert alert-danger rounded">
+          {error}
+        </div>
+      )}
 
       <div className="card shadow-sm border-0">
         <div className="table-responsive">
@@ -96,6 +134,7 @@ export default function Orders() {
             <thead className="table-light">
               <tr>
                 <th>Order</th>
+                <th>CID</th>
                 <th>Customer</th>
                 <th>Pickup</th>
                 <th>Drop</th>
@@ -108,25 +147,41 @@ export default function Orders() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-4">
+                  <td colSpan="8" className="text-center py-4">
                     Loading orders…
                   </td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-4">
+                  <td colSpan="8" className="text-center py-4">
                     No orders found
                   </td>
                 </tr>
               ) : (
                 orders.map((o) => (
-                  <tr key={o.orderId}>
+                  <tr
+                    key={o.orderId}
+                    role="button"
+                    onClick={() =>
+                      navigate(`/vendor/orders/${o.orderId}`)
+                    }
+                  >
                     <td>
                       <strong>{o.orderId}</strong>
                       <br />
                       <small className="text-muted">
                         {new Date(o.createdAt).toLocaleString()}
                       </small>
+                    </td>
+
+                    <td>
+                      {o.clientOrderId ? (
+                        o.clientOrderId
+                      ) : (
+                        <span className="text-muted">
+                          Not specified
+                        </span>
+                      )}
                     </td>
 
                     <td>
@@ -138,46 +193,38 @@ export default function Orders() {
                     </td>
 
                     <td>
-                      <small>
-                        {o.pickup?.address || "Store Pickup"}
+                      <small className="text-muted">
+                        {renderPickup(o)}
                       </small>
                     </td>
 
                     <td>
-                      <small>
-                        {o.drop?.address || "Customer Location"}
+                      <small className="text-muted">
+                        {renderDrop(o)}
                       </small>
                     </td>
 
                     <td>
                       <span
-                        className={`badge ${
-                          o.status === "NEW"
-                            ? "bg-secondary"
-                            : o.status === "ASSIGNED"
-                            ? "bg-primary"
-                            : o.status === "ON_THE_WAY"
-                            ? "bg-warning text-dark"
-                            : o.status === "DELIVERED"
-                            ? "bg-success"
-                            : "bg-danger"
-                        }`}
+                        className={`badge ${statusClass(
+                          o.status
+                        )}`}
                       >
                         {o.status}
                       </span>
                     </td>
 
                     <td>
-                      {o.assignedRiderId ? (
-                        o.assignedRiderId
-                      ) : (
-                        <span className="text-muted">Unassigned</span>
-                      )}
+                      {renderRider(o)}
                     </td>
 
-                    <td className="text-end">
+                    <td
+                      className="text-end"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <button
                         className="btn btn-sm btn-outline-primary me-2"
+                        title="View Order"
                         onClick={() =>
                           navigate(`/vendor/orders/${o.orderId}`)
                         }
@@ -188,6 +235,7 @@ export default function Orders() {
                       {o.status === "NEW" && (
                         <button
                           className="btn btn-sm btn-outline-danger"
+                          title="Cancel Order"
                           onClick={() =>
                             handleCancel(o.orderId)
                           }
