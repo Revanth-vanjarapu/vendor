@@ -1,3 +1,4 @@
+// src/hooks/useSocket.js
 import { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 
@@ -10,26 +11,17 @@ export function useSocket() {
     if (!socketInstance) {
       const token = localStorage.getItem("token");
 
-      socketInstance = io(import.meta.env.VITE_API_BASE_URL, {
+      socketInstance = io(import.meta.env.VITE_SOCKET_URL, {
         transports: ["websocket"],
-        auth: {
-          token, // backend decodes this and sets socket.user
-        },
+        auth: { token },
       });
 
       socketInstance.on("connect", () => {
-        console.log("🟢 Socket connected", socketInstance.id);
-
-        // Optional: backend supports this
-        socketInstance.emit("vendor:ping");
-      });
-
-      socketInstance.on("vendor:pong", (data) => {
-        console.log("🏪 Vendor pong:", data.message);
+        console.log("🟢 Vendor socket connected:", socketInstance.id);
       });
 
       socketInstance.on("disconnect", () => {
-        console.log("🔴 Socket disconnected");
+        console.log("🔴 Vendor socket disconnected");
       });
 
       socketInstance.on("connect_error", (err) => {
