@@ -86,7 +86,7 @@ export default function Login() {
                 </label>
                 <input
                   className="form-control"
-                  placeholder="vijetha"
+                  placeholder="Username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
