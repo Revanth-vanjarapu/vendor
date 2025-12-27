@@ -1,29 +1,69 @@
 import { NavLink } from "react-router-dom";
+import { useMemo } from "react";
 
 export default function Sidebar() {
+  /* ===============================
+     LOAD VENDOR FROM STORAGE
+  ================================ */
+  const vendor = useMemo(() => {
+    try {
+      const stored = localStorage.getItem("shippzi_vendor");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /* ===============================
+     RESOLVE LOGO (PRIORITY)
+     1. vendor.logoUrl
+     2. vendor.theme.logoUrl
+     3. default shippzi logo
+  ================================ */
+  const logoUrl =
+    vendor?.logoUrl ||
+    vendor?.theme?.logoUrl ||
+    "/logo.png";
+
   return (
     <aside className="vh-100 border-end bg-body d-flex flex-column">
-      {/* Logo */}
-      <div className="p-4 border-bottom text-center">
+      {/* ===============================
+          LOGO
+      ================================ */}
+      <div
+        className="border-bottom d-flex align-items-center justify-content-center px-2"
+        style={{
+          height: "80px",
+          background: "#fff",
+        }}
+      >
         <img
-          src="/logo.png"
-          alt="Shippzi"
-          className="img-fluid"
-          style={{ maxHeight: "48px" }}
+          src={logoUrl}
+          alt={vendor?.name || "Shippzi"}
+          style={{
+            maxHeight: "60px",
+            maxWidth: "100%",
+            width: "100%",
+            objectFit: "contain",
+          }}
+          onError={(e) => {
+            e.currentTarget.src = "/logo.png";
+          }}
         />
       </div>
-
-      {/* Navigation */}
+      {/* ===============================
+          NAVIGATION
+      ================================ */}
       <nav className="flex-grow-1 p-3">
         <ul className="nav nav-pills flex-column gap-1">
+
           <li className="nav-item">
             <NavLink
               to="/vendor/dashboard"
               className={({ isActive }) =>
-                `nav-link d-flex align-items-center gap-2 ${
-                  isActive
-                    ? "active bg-primary text-white"
-                    : "text-body"
+                `nav-link d-flex align-items-center gap-2 ${isActive
+                  ? "active bg-primary text-white"
+                  : "text-body"
                 }`
               }
             >
@@ -36,10 +76,9 @@ export default function Sidebar() {
             <NavLink
               to="/vendor/stores"
               className={({ isActive }) =>
-                `nav-link d-flex align-items-center gap-2 ${
-                  isActive
-                    ? "active bg-primary text-white"
-                    : "text-body"
+                `nav-link d-flex align-items-center gap-2 ${isActive
+                  ? "active bg-primary text-white"
+                  : "text-body"
                 }`
               }
             >
@@ -52,10 +91,9 @@ export default function Sidebar() {
             <NavLink
               to="/vendor/orders"
               className={({ isActive }) =>
-                `nav-link d-flex align-items-center gap-2 ${
-                  isActive
-                    ? "active bg-primary text-white"
-                    : "text-body"
+                `nav-link d-flex align-items-center gap-2 ${isActive
+                  ? "active bg-primary text-white"
+                  : "text-body"
                 }`
               }
             >
@@ -64,15 +102,13 @@ export default function Sidebar() {
             </NavLink>
           </li>
 
-          {/* ✅ NEW: RIDERS */}
           <li className="nav-item">
             <NavLink
               to="/vendor/riders"
               className={({ isActive }) =>
-                `nav-link d-flex align-items-center gap-2 ${
-                  isActive
-                    ? "active bg-primary text-white"
-                    : "text-body"
+                `nav-link d-flex align-items-center gap-2 ${isActive
+                  ? "active bg-primary text-white"
+                  : "text-body"
                 }`
               }
             >
@@ -80,6 +116,7 @@ export default function Sidebar() {
               Riders
             </NavLink>
           </li>
+
         </ul>
       </nav>
     </aside>

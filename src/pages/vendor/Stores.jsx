@@ -3,13 +3,13 @@ import {
   getVendorStores,
   createVendorStore,
   updateVendorStore,
-  changeStoreStatus,
+  // changeStoreStatus,
   deleteVendorStore,
 } from "../../api/vendor.stores.api";
 import {
   Pencil,
   Trash2,
-  Power,
+  // Power,
   Plus,
   MapPin,
 } from "lucide-react";
@@ -247,7 +247,7 @@ export default function Stores() {
                         <Pencil size={16} />
                       </button>
 
-                      <button
+                      {/* <button
                         className="btn btn-link btn-sm text-muted"
                         title="Toggle Status"
                         onClick={() =>
@@ -260,7 +260,7 @@ export default function Stores() {
                         }
                       >
                         <Power size={16} />
-                      </button>
+                      </button> */}
 
                       <button
                         className="btn btn-link btn-sm text-danger"
