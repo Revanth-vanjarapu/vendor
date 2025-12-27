@@ -213,26 +213,26 @@ export default function AdminOrderView() {
     Live rider tracking via socket
     (We DO NOT modify socket behaviour here - keep as is)
   ================================ */
-useEffect(() => {
-  if (!socket) return;
+  useEffect(() => {
+    if (!socket) return;
 
-  const onLocationUpdate = (data) => {
-    console.log("🟡 VENDOR RECEIVED LOCATION:", data);
+    const onLocationUpdate = (data) => {
+      console.log("🟡 VENDOR RECEIVED LOCATION:", data);
 
-    if (typeof data?.lat !== "number" || typeof data?.lng !== "number") return;
+      if (typeof data?.lat !== "number" || typeof data?.lng !== "number") return;
 
-    // ✅ DO NOT check orderId for vendor
-    // Vendor is already scoped by vendor:{vendorId}
+      // ✅ DO NOT check orderId for vendor
+      // Vendor is already scoped by vendor:{vendorId}
 
-    setRiderPosition([data.lat, data.lng]);
-  };
+      setRiderPosition([data.lat, data.lng]);
+    };
 
-  socket.on("rider:location:update", onLocationUpdate);
+    socket.on("rider:location:update", onLocationUpdate);
 
-  return () => {
-    socket.off("rider:location:update", onLocationUpdate);
-  };
-}, [socket]);
+    return () => {
+      socket.off("rider:location:update", onLocationUpdate);
+    };
+  }, [socket]);
 
 
   /* ===============================
@@ -281,7 +281,16 @@ useEffect(() => {
   ================================ */
   const handleCancel = async () => {
     if (!order) return;
+
+    // 🚫 Business rule enforcement
+    if (order.status !== "NEW") {
+      return alert(
+        "You can cancel an order only before a rider is assigned."
+      );
+    }
+
     if (!window.confirm(`Cancel order ${order.orderId}?`)) return;
+
     try {
       await cancelVendorOrder(order.orderId);
       const res = await getVendorOrderById(orderId);
@@ -292,6 +301,7 @@ useEffect(() => {
       alert("Cancel failed");
     }
   };
+
 
   /* ===============================
     Utility
@@ -377,18 +387,12 @@ useEffect(() => {
             <button className="btn btn-light btn-sm me-2" onClick={() => navigate(-1)}>
               ← Back
             </button>
-            {/* show cancel only for non-final statuses */}
-            {status !== "DELIVERED" && status !== "CANCELLED" && (
-              <button className="btn btn-outline-danger btn-sm" onClick={handleCancel}>
-                Cancel Order
-              </button>
-            )}
           </div>
         </div>
       </div>
 
       {/* Meta card */}
-      <div className="card mb-3">
+      <div className="card card-ui mb-3">
         <div className="card-body">
           <div className="row g-2">
             <div className="col-md-4">
@@ -440,7 +444,7 @@ useEffect(() => {
       {/* Main row: Map | Right column */}
       <div className="row g-4">
         <div className="col-lg-8">
-          <div className="card">
+          <div className="card card-ui">
             <div className="card-body p-0">
               <MapContainer
                 whenCreated={(m) => (mapRef.current = m)}
@@ -481,7 +485,7 @@ useEffect(() => {
           </div>
 
           {/* Proof photos */}
-          <div className="card mt-3">
+          <div className="card card-ui mt-3">
             <div className="card-body">
               <h6 className="mb-3">Proof Photos</h6>
               <div className="d-flex gap-3 flex-wrap">
@@ -495,6 +499,7 @@ useEffect(() => {
                       onClick={() => window.open(proof.pickupPhoto, "_blank")}
                     />
                   </div>
+
                 ) : (
                   <div style={{ minWidth: 140 }}>
                     <div className="small text-muted">Pickup</div>
@@ -503,6 +508,7 @@ useEffect(() => {
                     </div>
                   </div>
                 )}
+
 
                 {proof?.deliveryPhoto ? (
                   <div style={{ minWidth: 140 }}>
@@ -514,6 +520,7 @@ useEffect(() => {
                       onClick={() => window.open(proof.deliveryPhoto, "_blank")}
                     />
                   </div>
+
                 ) : (
                   <div style={{ minWidth: 140 }}>
                     <div className="small text-muted">Delivery</div>
@@ -523,14 +530,16 @@ useEffect(() => {
                   </div>
                 )}
               </div>
+
             </div>
+
           </div>
         </div>
 
         {/* RIGHT COLUMN */}
         <div className="col-lg-4">
           {/* Customer */}
-          <div className="card mb-3 p-3">
+          <div className="card card-ui mb-3 p-3">
             <h6>Customer</h6>
             <div className="fw-semibold">{customer?.name || "-"}</div>
             <div className="text-muted mb-2">
@@ -540,12 +549,12 @@ useEffect(() => {
             <div className="small text-muted">Delivery Address</div>
             <div className="mb-2">{dropAddress || <span className="text-muted">Not available</span>}</div>
 
-            <div className="small text-muted">Notes</div>
-            <div className="mb-2">{notes || <span className="text-muted">—</span>}</div>
+            {/* <div className="small text-muted">Notes</div>
+            <div className="mb-2">{notes || <span className="text-muted">—</span>}</div> */}
           </div>
 
           {/* Billing */}
-          <div className="card mb-3 p-3">
+          <div className="card card-ui mb-3 p-3">
             <h6>Billing</h6>
             {billing ? (
               <>
@@ -560,7 +569,7 @@ useEffect(() => {
           </div>
 
           {/* Assigned Rider */}
-          <div className="card mb-3 p-3">
+          <div className="card card-ui mb-3 p-3">
             <h6>Rider</h6>
             {assignedRider ? (
               <>
@@ -577,7 +586,7 @@ useEffect(() => {
 
           {/* Assign UI (only when NEW) */}
           {status === "NEW" && (
-            <div className="card p-3">
+            <div className="card card-ui p-3">
               <h6>Assign Rider</h6>
               {riders.length === 0 && <div className="text-muted small">No riders available</div>}
               {riders.map((r) => (
@@ -591,15 +600,34 @@ useEffect(() => {
                   <div className="small text-muted">{r.phone} • {r.riderId}</div>
                 </div>
               ))}
+              {/* show cancel only for non-final statuses */}
+
 
               <button className="btn btn-dark w-100" disabled={!selectedRider || assigning} onClick={handleAssignRider}>
                 {assigning ? "Assigning…" : "Assign Rider"}
               </button>
+
             </div>
+
           )}
+
         </div>
       </div>
+      {/* ===============================
+   BOTTOM ACTIONS
+================================ */}
+      <div className="mt-4 pt-3 border-top d-flex justify-content-end">
+        <button
+          className="btn btn-outline-danger px-4"
+          onClick={handleCancel}
+          disabled={status !== "NEW"}
+        >
+          Cancel Order
+        </button>
+      </div>
+
     </div>
+
   );
 }
 

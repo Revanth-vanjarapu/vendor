@@ -305,9 +305,9 @@ export default function Dashboard() {
           <table className="table align-middle mb-0">
             <thead className="table-light">
               <tr>
+                <th>CID</th>
                 <th>Store</th>
                 <th>Customer</th>
-                <th>CID</th>
                 <th>Created</th>
                 <th>Picked up</th>
                 <th>Delivered</th>
@@ -315,6 +315,7 @@ export default function Dashboard() {
                 <th className="text-end">Action</th>
               </tr>
             </thead>
+
 
             <tbody>
               {recentOrders.length === 0 ? (
@@ -327,6 +328,10 @@ export default function Dashboard() {
                 recentOrders.map((o) => (
                   <tr key={o.orderId} role="button" onClick={() => navigate(`/vendor/orders/${o.orderId}`)}>
                     <td>
+                      <div className="fw-semibold">{o.clientOrderId || <span className="text-muted">Not specified</span>}</div>
+                    </td>
+
+                    <td>
                       <div className="fw-semibold">{getStoreName(o)}</div>
                       <div className="text-muted small">{o.storeId || ""}</div>
                     </td>
@@ -336,15 +341,26 @@ export default function Dashboard() {
                       <div className="text-muted small">{o.customer?.phone || ""}</div>
                     </td>
 
-                    <td>
-                      <div className="fw-semibold">{o.clientOrderId || <span className="text-muted">Not specified</span>}</div>
-                    </td>
+
 
                     <td className="text-muted small">{formatTime(getStatusTime(o, "CREATED"))}</td>
 
-                    <td className="text-muted small">{formatTime(getStatusTime(o, "PICKED_UP"))}</td>
+                    {/* Picked up */}
+                    <td className="text-muted small">
+                      {o.status === "PICKED_UP" ||
+                        o.status === "ON_THE_WAY" ||
+                        o.status === "DELIVERED"
+                        ? formatTime(o.updatedAt)
+                        : "—"}
+                    </td>
 
-                    <td className="text-muted small">{formatTime(getStatusTime(o, "DELIVERED"))}</td>
+                    {/* Delivered */}
+                    <td className="text-muted small">
+                      {o.status === "DELIVERED"
+                        ? formatTime(o.updatedAt)
+                        : "—"}
+                    </td>
+
 
                     <td>
                       <span className={`badge ${getStatusClass(o.status)}`}>

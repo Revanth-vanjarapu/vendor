@@ -9,6 +9,15 @@ import autoTable from "jspdf-autotable";
  * Vendor Reports – Orders
  * FINAL production version
  */
+const MAX_RANGE_DAYS = 90;
+
+function diffInDays(from, to) {
+    if (!from || !to) return 0;
+    const start = new Date(from);
+    const end = new Date(to);
+    return Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+}
+
 
 export default function Reports() {
     const [orders, setOrders] = useState([]);
@@ -125,10 +134,17 @@ export default function Reports() {
     };
 
     const handleGenerate = () => {
-        // When user generates, reset to page 1 and fetch page 1
+        if (filters.fromDate && filters.toDate) {
+            const days = diffInDays(filters.fromDate, filters.toDate);
+            if (days > MAX_RANGE_DAYS) {
+                return alert("Date range cannot exceed 90 days");
+            }
+        }
+
         setPage(1);
         loadReport(1);
     };
+
 
     const startIndex = (page - 1) * limit;
     const downloadPdfReport = async () => {
@@ -160,6 +176,32 @@ export default function Reports() {
                 totalPagesFromApi = data?.pagination?.totalPages || 1;
                 currentPage++;
             }
+            const dateRangeText =
+                !filters.fromDate && !filters.toDate
+                    ? "From: Last 90 days"
+                    : [
+                        filters.fromDate
+                            ? `From: ${filters.fromDate}`
+                            : "From: —",
+                        filters.toDate
+                            ? `To: ${filters.toDate}`
+                            : "To: —",
+                    ].join(" | ");
+
+            const filterSummary = [
+                filters.storeId
+                    ? `Store: ${getStoreName(filters.storeId)}`
+                    : "Store: All",
+                filters.riderId
+                    ? `Rider: ${getRiderName(filters.riderId)}`
+                    : "Rider: All",
+                filters.status
+                    ? `Status: ${filters.status}`
+                    : "Status: All",
+                dateRangeText,
+            ].join(" | ");
+
+
 
             const doc = new jsPDF("l", "mm", "a4");
 
@@ -173,8 +215,12 @@ export default function Reports() {
                 18
             );
 
+            doc.setFontSize(9);
+            doc.text(filterSummary, 14, 24);
+
+
             autoTable(doc, {
-                startY: 22,
+                startY: 30,
                 head: [[
                     "#",
                     "Order ID",
@@ -219,6 +265,12 @@ export default function Reports() {
         }
     };
 
+    const today = new Date().toISOString().slice(0, 10);
+    const minDate = new Date(
+        Date.now() - MAX_RANGE_DAYS * 24 * 60 * 60 * 1000
+    )
+        .toISOString()
+        .slice(0, 10);
 
     return (
         <div className="container-fluid py-4">
@@ -229,7 +281,7 @@ export default function Reports() {
             {/* ===============================
         FILTERS
     ================================ */}
-            <div className="card mb-3">
+            <div className="card card-ui mb-3">
                 <div className="card-body row g-3 align-items-end">
 
                     <div className="col-md-3">
@@ -299,6 +351,8 @@ export default function Reports() {
                             type="date"
                             className="form-control"
                             value={filters.fromDate}
+                            min={minDate}
+                            max={today}
                             onChange={(e) =>
                                 setFilters({
                                     ...filters,
@@ -306,6 +360,7 @@ export default function Reports() {
                                 })
                             }
                         />
+
                     </div>
 
                     <div className="col-md-2">
@@ -314,6 +369,8 @@ export default function Reports() {
                             type="date"
                             className="form-control"
                             value={filters.toDate}
+                            min={minDate}
+                            max={today}
                             onChange={(e) =>
                                 setFilters({
                                     ...filters,
@@ -321,6 +378,7 @@ export default function Reports() {
                                 })
                             }
                         />
+
                     </div>
 
                     <div className="col-md-12 text-end">
@@ -337,7 +395,7 @@ export default function Reports() {
             {/* ===============================
         TABLE
     ================================ */}
-            <div className="card">
+            <div className="card card-ui">
                 <div className="card-body p-0">
                     <table className="table table-bordered table-hover mb-0">
                         <thead className="table-light">

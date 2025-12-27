@@ -1,21 +1,21 @@
-/* Universal premium card */
+/* Universal premium card – subtle */
 .card-ui {
-  background:#fff;
-  border-radius:14px;
-  padding:1rem;
-  border:1px solid rgba(0,0,0,.05);
+  background: #fff;
+  border-radius: 14px;
+  padding: 1rem;
+  border: 1px solid rgba(0, 0, 0, 0.05);
   box-shadow:
-    0 1px 2px rgba(0,0,0,.04),
-    0 8px 24px rgba(0,0,0,.06);
+    0 1px 1px rgba(0, 0, 0, 0.03),
+    0 6px 16px rgba(0, 0, 0, 0.04);
   transition:
-    box-shadow .2s ease,
-    transform .2s ease;
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
-/* Subtle lift – not flashy */
+/* Very light lift on hover */
 .card-ui:hover {
-  transform:translateY(-1px);
+  transform: translateY(-0.5px);
   box-shadow:
-    0 3px 6px rgba(0,0,0,.06),
-    0 12px 32px rgba(0,0,0,.08);
+    0 2px 4px rgba(0, 0, 0, 0.04),
+    0 8px 20px rgba(0, 0, 0, 0.05);
 }

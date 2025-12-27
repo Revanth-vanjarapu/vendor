@@ -34,7 +34,10 @@ export default function Sidebar() {
             width: "100%",
             objectFit: "contain",
           }}
-          onError={(e) => (e.currentTarget.src = "/logo.png")}
+          onError={(e) => {
+            e.currentTarget.onerror = null; // 🔑 stop loop
+            e.currentTarget.src = "/logo.png";
+          }}
         />
       </div>
 
@@ -63,8 +66,7 @@ function NavItem({ to, icon, label }) {
       <NavLink
         to={to}
         className={({ isActive }) =>
-          `nav-link d-flex align-items-center gap-2 ${
-            isActive ? "active bg-primary text-white" : "text-body"
+          `nav-link d-flex align-items-center gap-2 ${isActive ? "active bg-primary text-white" : "text-body"
           }`
         }
       >

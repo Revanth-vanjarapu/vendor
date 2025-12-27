@@ -330,7 +330,7 @@ export default function Orders() {
 
       {error && <div className="alert alert-danger rounded">{error}</div>}
 
-      <div className="card shadow-sm border-0">
+      <div className="card card-ui">
         <div className="table-responsive">
           <table className="table align-middle mb-0">
             <thead className="table-light">
@@ -455,7 +455,7 @@ export default function Orders() {
 
                       {/* ACTIONS */}
                       <td className="text-end" onClick={(e) => e.stopPropagation()}>
-                        <button className="btn btn-sm btn-outline-primary" title="View Order" onClick={() => navigate(`/vendor/orders/${o.orderId}`)}>
+                        <button className="btn btn-sm" title="View Order" onClick={() => navigate(`/vendor/orders/${o.orderId}`)}>
                           <Eye size={16} />
                         </button>
                       </td>

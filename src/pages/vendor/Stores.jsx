@@ -206,7 +206,7 @@ export default function Stores() {
       </div>
 
       {/* TABLE */}
-      <div className="card">
+      <div className="card card-ui">
         <div className="table-responsive">
           <table className="table align-middle mb-0">
             <thead className="table-light">
