@@ -33,7 +33,7 @@ export default function Riders() {
       ]);
 
       setRiders(normalizeArray(ridersRes?.data?.data));
-      setStores(normalizeArray(storesRes?.data?.data));
+      setStores(normalizeArray(storesRes?.data?.data?.items));
     } catch (err) {
       console.error(err);
       setRiders([]);
@@ -159,11 +159,10 @@ export default function Riders() {
 
                     <td>
                       <span
-                        className={`badge ${
-                          r.status === "ACTIVE"
+                        className={`badge ${r.status === "ACTIVE"
                             ? "bg-success-subtle text-success"
                             : "bg-secondary-subtle text-secondary"
-                        }`}
+                          }`}
                       >
                         {r.status}
                       </span>

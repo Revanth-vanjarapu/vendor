@@ -5,12 +5,14 @@ import { useNavigate } from "react-router-dom";
 import { getVendorStores } from "../../api/vendor.stores.api";
 import { getVendorOrders } from "../../api/vendor.orders.api";
 import { useSocket } from "../../hooks/useSocket";
+import "../../index.css"; // load your page card styles (you uploaded this)
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const socket = useSocket();
 
   const [storesCount, setStoresCount] = useState(0);
+  const [storesMap, setStoresMap] = useState({}); // map storeId -> store object
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -19,11 +21,6 @@ export default function Dashboard() {
      SAFE PARSE: normalize vendor orders response shape
   ================================ */
   const parseOrdersResponse = (res) => {
-    // Handle various shapes we've seen:
-    // 1) res.data.data.items (paginated)
-    // 2) res.data.data (array)
-    // 3) res.data (array)
-    // 4) res (array)
     try {
       if (!res) return [];
       if (Array.isArray(res)) return res;
@@ -39,33 +36,55 @@ export default function Dashboard() {
 
   /* ===============================
      INITIAL LOAD
+     - fetch stores & orders in parallel
+     - build a stores map to display store name in orders table
+     - Option B: compute counts locally (backend summary API would be better)
   ================================ */
   const loadDashboard = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
 
-      // Stores count
-      const storesRes = await getVendorStores();
-      const storesItems =
-        storesRes?.data?.data?.items ?? storesRes?.data?.data ?? storesRes?.data ?? [];
-      setStoresCount(Array.isArray(storesItems) ? storesItems.length : 0);
+      const [storesRes, ordersRes] = await Promise.all([
+        getVendorStores(),
+        getVendorOrders({ page: 1, limit: 100 }),
+      ]);
 
-      // Orders (we ask server for first page; we'll also accept non-paginated)
-      const ordersRes = await getVendorOrders({ page: 1, limit: 50 });
+      // Normalize store items (support different shapes)
+      const storesItems =
+        storesRes?.data?.data?.items ??
+        storesRes?.data?.data ??
+        storesRes?.data ??
+        [];
+
+      const storesArray = Array.isArray(storesItems) ? storesItems : [];
+      // Build map keyed by storeId (fallback to _id)
+      const map = {};
+      storesArray.forEach((s) => {
+        const key = s.storeId ?? s._id ?? s.id ?? null;
+        if (key) map[key] = s;
+      });
+      setStoresMap(map);
+      setStoresCount(storesArray.length);
+
+      // Parse orders
       const parsed = parseOrdersResponse(ordersRes);
-      
-      // normalize createdAt types and sort
-      const normalized = parsed.map((o) => ({
-        ...o,
-        createdAt: o.createdAt ? new Date(o.createdAt).toISOString() : null,
-      }));
+
+      // Normalize createdAt and sort newest first
+      const normalized = parsed
+        .map((o) => ({
+          ...o,
+          createdAt: o.createdAt ? new Date(o.createdAt).toISOString() : null,
+        }))
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
       setOrders(normalized);
     } catch (err) {
       console.error("Dashboard load failed", err);
       setError("Failed to load dashboard");
       setOrders([]);
       setStoresCount(0);
+      setStoresMap({});
     } finally {
       setLoading(false);
     }
@@ -77,22 +96,26 @@ export default function Dashboard() {
 
   /* ===============================
      REALTIME UPDATES (SOCKET)
-     - event name: vendor:order_updated (kept from your code)
+     - merge/replace orders on update
   ================================ */
   useEffect(() => {
     if (!socket) return;
 
     const onOrderUpdate = (order) => {
-      // console log for debugging
       console.log("📡 Dashboard realtime:", order);
 
       setOrders((prev) => {
-        // if order already exists, replace it; otherwise prepend
         const exists = prev.find((o) => o.orderId === order.orderId);
         if (exists) {
-          return prev.map((o) => (o.orderId === order.orderId ? { ...o, ...order } : o));
+          return prev.map((o) =>
+            o.orderId === order.orderId
+              ? { ...o, ...order, createdAt: o.createdAt ?? order.createdAt }
+              : o
+          );
         }
-        return [order, ...prev];
+        // new order -> prepend (normalize createdAt)
+        const normalized = { ...order, createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null };
+        return [normalized, ...prev];
       });
     };
 
@@ -104,7 +127,7 @@ export default function Dashboard() {
   }, [socket]);
 
   /* ===============================
-     DERIVED METRICS
+     DERIVED METRICS & recent orders
   ================================ */
   const newOrders = orders.filter((o) => o.status === "NEW").length;
 
@@ -114,9 +137,83 @@ export default function Dashboard() {
 
   const delivered = orders.filter((o) => o.status === "DELIVERED").length;
 
-  const recentOrders = [...orders]
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-    .slice(0, 5);
+  const recentOrders = [...orders].slice(0, 5); // already sorted
+
+  /* ===============================
+     HELPERS: get store name and status timestamps
+  ================================ */
+  function getStoreName(order) {
+    if (!order) return "-";
+    const storeKeyCandidates = [order.storeId, order.storeMongoId, order.store?._id];
+    for (const k of storeKeyCandidates) {
+      if (k && storesMap[k]) return storesMap[k].name || storesMap[k].storeName || storesMap[k].title || k;
+    }
+    // fallback: show storeId if present
+    return order.storeId ?? order.storeMongoId ?? "Unknown store";
+  }
+
+  function findStatusInHistory(order, status) {
+    if (!order) return null;
+    // common patterns:
+    // - order.statusHistory = [{status: "ASSIGNED", at: "..."}]
+    // - order.statusHistory = [{status: "ASSIGNED", time: "..."}]
+    const hist = order.statusHistory || order.status_log || order.statusLogs || null;
+    if (Array.isArray(hist)) {
+      const entry = hist.find((h) => {
+        return (h.status && h.status === status) || (h.name && h.name === status);
+      });
+      if (entry) {
+        return entry.at ?? entry.time ?? entry.timestamp ?? entry.createdAt ?? null;
+      }
+    }
+    return null;
+  }
+
+  function getStatusTime(order, targetStatus) {
+    if (!order) return null;
+
+    // 1) explicit history
+    const histTime = findStatusInHistory(order, targetStatus);
+    if (histTime) return histTime;
+
+    // 2) explicit fields
+    if (targetStatus === "PICKED_UP") {
+      if (order.pickedAt) return order.pickedAt;
+      if (order.timestamps?.pickedUp) return order.timestamps.pickedUp;
+      if (order.timestamps?.picked_up) return order.timestamps.picked_up;
+      // heuristic: if order progressed past PICKED_UP, use updatedAt (best-effort)
+      if (["PICKED_UP", "ON_THE_WAY", "DELIVERED"].includes(order.status)) {
+        return order.pickedAt ?? order.updatedAt ?? null;
+      }
+      return null;
+    }
+
+    if (targetStatus === "DELIVERED") {
+      if (order.deliveredAt) return order.deliveredAt;
+      if (order.timestamps?.delivered) return order.timestamps.delivered;
+      if (order.proof?.deliveryTime) return order.proof.deliveryTime;
+      // heuristic
+      if (order.status === "DELIVERED") return order.updatedAt ?? order.createdAt ?? null;
+      return null;
+    }
+
+    if (targetStatus === "CREATED") {
+      return order.createdAt ?? null;
+    }
+
+    return null;
+  }
+
+  function formatTime(ts) {
+    if (!ts) return "—";
+    try {
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return ts; // return raw if not ISO
+      return d.toLocaleString();
+    } catch {
+      return ts;
+    }
+  }
 
   /* ===============================
      UI STATES
@@ -143,7 +240,7 @@ export default function Dashboard() {
   return (
     <div className="dashboard container-fluid p-4">
       {/* HEADER */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex justify-content-between align-items-center mb-4 card-ui">
         <div>
           <h4 className="fw-semibold mb-0">Dashboard</h4>
           <small className="text-muted">Overview of vendor operations</small>
@@ -160,38 +257,38 @@ export default function Dashboard() {
       </div>
 
       {/* STATS */}
-      <div className="row g-3 mb-4">
+      <div className="row g-3 mb-4  ">
         <div className="col-sm-6 col-md-3">
-          <div className="card p-3">
+          <div className="card-ui card p-3">
             <div className="small text-muted">New Orders</div>
             <div className="h3 mb-0">{newOrders}</div>
           </div>
         </div>
 
         <div className="col-sm-6 col-md-3">
-          <div className="card p-3">
+          <div className="card card-ui p-3">
             <div className="small text-muted">In Transit</div>
             <div className="h3 mb-0">{inTransit}</div>
           </div>
         </div>
 
         <div className="col-sm-6 col-md-3">
-          <div className="card p-3">
+          <div className="card card-ui p-3">
             <div className="small text-muted">Delivered</div>
             <div className="h3 mb-0">{delivered}</div>
           </div>
         </div>
 
         <div className="col-sm-6 col-md-3">
-          <div className="card p-3">
+          <div className="card card-ui p-3">
             <div className="small text-muted">Stores</div>
             <div className="h3 mb-0">{storesCount}</div>
           </div>
         </div>
       </div>
 
-      {/* RECENT ORDERS */}
-      <div className="card">
+      {/* RECENT ORDERS (first 5) */}
+      <div className="card card-ui">
         <div className="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
           <div>Recent Orders</div>
           <div>
@@ -208,9 +305,13 @@ export default function Dashboard() {
           <table className="table align-middle mb-0">
             <thead className="table-light">
               <tr>
-                <th>Order</th>
-                <th>Status</th>
+                <th>Store</th>
+                <th>Customer</th>
+                <th>CID</th>
                 <th>Created</th>
+                <th>Picked up</th>
+                <th>Delivered</th>
+                <th>Status</th>
                 <th className="text-end">Action</th>
               </tr>
             </thead>
@@ -218,7 +319,7 @@ export default function Dashboard() {
             <tbody>
               {recentOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center text-muted py-4">
+                  <td colSpan={8} className="text-center text-muted py-4">
                     No orders yet
                   </td>
                 </tr>
@@ -226,21 +327,29 @@ export default function Dashboard() {
                 recentOrders.map((o) => (
                   <tr key={o.orderId} role="button" onClick={() => navigate(`/vendor/orders/${o.orderId}`)}>
                     <td>
-                      <strong>#{o.orderId}</strong>
-                      <br />
-                      <small className="text-muted">
-                        {o.customer?.name ? `${o.customer?.name}` : "—"}
-                      </small>
+                      <div className="fw-semibold">{getStoreName(o)}</div>
+                      <div className="text-muted small">{o.storeId || ""}</div>
                     </td>
+
+                    <td>
+                      <div className="fw-semibold">{o.customer?.name || "—"}</div>
+                      <div className="text-muted small">{o.customer?.phone || ""}</div>
+                    </td>
+
+                    <td>
+                      <div className="fw-semibold">{o.clientOrderId || <span className="text-muted">Not specified</span>}</div>
+                    </td>
+
+                    <td className="text-muted small">{formatTime(getStatusTime(o, "CREATED"))}</td>
+
+                    <td className="text-muted small">{formatTime(getStatusTime(o, "PICKED_UP"))}</td>
+
+                    <td className="text-muted small">{formatTime(getStatusTime(o, "DELIVERED"))}</td>
 
                     <td>
                       <span className={`badge ${getStatusClass(o.status)}`}>
                         {o.status?.replaceAll("_", " ") || "—"}
                       </span>
-                    </td>
-
-                    <td className="text-muted small">
-                      {o.createdAt ? new Date(o.createdAt).toLocaleString() : "—"}
                     </td>
 
                     <td className="text-end" onClick={(e) => e.stopPropagation()}>
@@ -264,7 +373,6 @@ export default function Dashboard() {
 
 /* ===============================
    Helper: status -> badge class
-   Keep same mapping you use across app
 ================================ */
 function getStatusClass(status) {
   switch (status) {

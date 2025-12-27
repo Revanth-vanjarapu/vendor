@@ -1,16 +1,21 @@
-.dashboard-header {
-  display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;
+/* Universal premium card */
+.card-ui {
+  background:#fff;
+  border-radius:14px;
+  padding:1rem;
+  border:1px solid rgba(0,0,0,.05);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,.04),
+    0 8px 24px rgba(0,0,0,.06);
+  transition:
+    box-shadow .2s ease,
+    transform .2s ease;
 }
-.dashboard-stats {
-  display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;
-}
-.dashboard-stat {
-  background:#fff;border-radius:14px;padding:1rem;
-  box-shadow:0 6px 20px rgba(0,0,0,.04);
-}
-.stat-label {
-  font-size:.8rem;color:#6c757d;
-}
-.stat-value {
-  font-size:1.9rem;font-weight:600;
+
+/* Subtle lift – not flashy */
+.card-ui:hover {
+  transform:translateY(-1px);
+  box-shadow:
+    0 3px 6px rgba(0,0,0,.06),
+    0 12px 32px rgba(0,0,0,.08);
 }

@@ -52,6 +52,7 @@ export default function CreateOrder() {
     phone: "",
     pickupLat: "",
     pickupLng: "",
+    dropLocation: "",
     dropLat: "",
     dropLng: "",
     vehicleType: "BIKE",
@@ -94,18 +95,24 @@ export default function CreateOrder() {
   /* ===============================
      MAP CLICK HANDLER
   ================================ */
+
   function MapClickHandler() {
     useMapEvents({
       click(e) {
+        const lat = e.latlng.lat;
+        const lng = e.latlng.lng;
+
         setSingle((p) => ({
           ...p,
-          dropLat: e.latlng.lat,
-          dropLng: e.latlng.lng,
+          dropLat: lat,
+          dropLng: lng,
+          dropLocation: `${lat}, ${lng}`, // ✅ auto-update input
         }));
       },
     });
     return null;
   }
+
 
   /* ===============================
      SEARCH LOCATION
@@ -127,23 +134,46 @@ export default function CreateOrder() {
     }
   };
 
+  function parseLatLng(input) {
+    if (!input) return null;
+
+    // remove spaces → split by comma
+    const parts = input.replace(/\s+/g, "").split(",");
+
+    if (parts.length !== 2) return null;
+
+    const lat = Number(parts[0]);
+    const lng = Number(parts[1]);
+
+    if (isNaN(lat) || isNaN(lng)) return null;
+
+    return { lat, lng };
+  }
+
+
   /* ===============================
      SUBMIT SINGLE
   ================================ */
+  /* ===============================
+   SUBMIT SINGLE
+================================ */
   const submitSingle = async () => {
-    if (!selectedStore)
+    if (!selectedStore) {
       return showToast("danger", "Select store");
+    }
 
-    if (
-      !single.customerName ||
-      !single.phone ||
-      !single.dropLat ||
-      !single.dropLng
-    ) {
+    const parsedDrop = parseLatLng(single.dropLocation);
+
+    if (!single.customerName || !single.phone) {
       return showToast("danger", "Missing required fields");
     }
 
+    if (!parsedDrop) {
+      return showToast("danger", "Invalid drop location");
+    }
+
     setSubmitting(true);
+
     try {
       const payload = {
         clientOrderId: single.clientOrderId || null,
@@ -153,8 +183,8 @@ export default function CreateOrder() {
           lng: Number(single.pickupLng),
         },
         drop: {
-          lat: Number(single.dropLat),
-          lng: Number(single.dropLng),
+          lat: parsedDrop.lat,
+          lng: parsedDrop.lng,
         },
         customer: {
           name: single.customerName,
@@ -166,13 +196,15 @@ export default function CreateOrder() {
       };
 
       await createVendorOrder(payload);
+
       showToast("success", "Order created successfully");
-    } catch {
+    } catch (err) {
       showToast("danger", "Order creation failed");
     } finally {
       setSubmitting(false);
     }
   };
+
 
   /* ===============================
      PARSE BULK (UNCHANGED LOGIC)
@@ -295,21 +327,19 @@ export default function CreateOrder() {
 
       <div className="btn-group mb-4">
         <button
-          className={`btn ${
-            mode === "single"
-              ? "btn-dark"
-              : "btn-outline-secondary"
-          }`}
+          className={`btn ${mode === "single"
+            ? "btn-dark"
+            : "btn-outline-secondary"
+            }`}
           onClick={() => setMode("single")}
         >
           Single Order
         </button>
         <button
-          className={`btn ${
-            mode === "bulk"
-              ? "btn-dark"
-              : "btn-outline-secondary"
-          }`}
+          className={`btn ${mode === "bulk"
+            ? "btn-dark"
+            : "btn-outline-secondary"
+            }`}
           onClick={() => setMode("bulk")}
         >
           Bulk Orders
@@ -323,22 +353,18 @@ export default function CreateOrder() {
             <div className="card shadow-sm">
               <div className="card-body">
                 <h6 className="fw-semibold mb-3">
-                  Single Order
+                  Single Order <span className="text-danger">*</span>
                 </h6>
 
                 <select
                   className="form-select mb-2"
                   value={storeId}
-                  onChange={(e) =>
-                    setStoreId(e.target.value)
-                  }
+                  required
+                  onChange={(e) => setStoreId(e.target.value)}
                 >
-                  <option value="">Select Store</option>
+                  <option value="">Select Store *</option>
                   {stores.map((s) => (
-                    <option
-                      key={s.storeId}
-                      value={s.storeId}
-                    >
+                    <option key={s.storeId} value={s.storeId}>
                       {s.name}
                     </option>
                   ))}
@@ -346,8 +372,9 @@ export default function CreateOrder() {
 
                 <input
                   className="form-control mb-2"
-                  placeholder="Client Order ID"
+                  placeholder="Client Order ID *"
                   value={single.clientOrderId}
+                  required
                   onChange={(e) =>
                     setSingle({
                       ...single,
@@ -358,8 +385,9 @@ export default function CreateOrder() {
 
                 <input
                   className="form-control mb-2"
-                  placeholder="Customer Name"
+                  placeholder="Customer Name *"
                   value={single.customerName}
+                  required
                   onChange={(e) =>
                     setSingle({
                       ...single,
@@ -370,8 +398,9 @@ export default function CreateOrder() {
 
                 <input
                   className="form-control mb-2"
-                  placeholder="Phone"
+                  placeholder="Phone *"
                   value={single.phone}
+                  required
                   onChange={(e) =>
                     setSingle({
                       ...single,
@@ -380,39 +409,29 @@ export default function CreateOrder() {
                   }
                 />
 
-                <div className="row g-2 mb-2">
-                  <div className="col">
-                    <input
-                      className="form-control"
-                      placeholder="Drop Lat"
-                      value={single.dropLat}
-                      onChange={(e) =>
-                        setSingle({
-                          ...single,
-                          dropLat: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="col">
-                    <input
-                      className="form-control"
-                      placeholder="Drop Lng"
-                      value={single.dropLng}
-                      onChange={(e) =>
-                        setSingle({
-                          ...single,
-                          dropLng: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
+                <input
+                  className="form-control mb-2"
+                  placeholder="Drop Location (lat, long) *"
+                  value={single.dropLocation}
+                  required
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const parsed = parseLatLng(value);
+
+                    setSingle({
+                      ...single,
+                      dropLocation: value,
+                      dropLat: parsed ? parsed.lat : "",
+                      dropLng: parsed ? parsed.lng : "",
+                    });
+                  }}
+                />
 
                 <textarea
                   className="form-control mb-3"
-                  placeholder="Notes / Address"
+                  placeholder="Address *"
                   value={single.notes}
+                  required
                   onChange={(e) =>
                     setSingle({
                       ...single,
@@ -426,11 +445,10 @@ export default function CreateOrder() {
                   disabled={submitting}
                   onClick={submitSingle}
                 >
-                  {submitting
-                    ? "Creating..."
-                    : "Create Order"}
+                  {submitting ? "Creating..." : "Create Order"}
                 </button>
               </div>
+
             </div>
           </div>
 
@@ -438,22 +456,41 @@ export default function CreateOrder() {
           <div className="col-lg-6">
             <div className="card shadow-sm">
               <div className="card-body">
-                <input
-                  className="form-control mb-2"
-                  placeholder="Search location"
-                  onBlur={(e) =>
-                    searchLocation(e.target.value)
-                  }
-                />
+                <div className="input-group mb-2">
+                  <input
+                    className="form-control"
+                    placeholder="Search location"
+                    onBlur={(e) => searchLocation(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        searchLocation(e.target.value);
+                      }
+                    }}
+                  />
+                  <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    onClick={(e) => {
+                      const input =
+                        e.currentTarget.previousSibling;
+                      if (input?.value)  {
+                        searchLocation(input.value);
+                      }
+                    }}
+                  >
+                    🔍
+                  </button>
+                </div>
+
 
                 <MapContainer
                   center={[
                     single.dropLat ||
-                      selectedStore?.lat ||
-                      17.44,
+                    selectedStore?.lat ||
+                    17.44,
                     single.dropLng ||
-                      selectedStore?.lng ||
-                      78.37,
+                    selectedStore?.lng ||
+                    78.37,
                   ]}
                   zoom={13}
                   style={{ height: 350 }}
