@@ -7,6 +7,7 @@ import OrderDetails from "../pages/vendor/Orders/OrderDetails";
 import Stores from "../pages/vendor/Stores";
 import CreateOrder from "../pages/vendor/Orders/CreateOrder";
 import Riders from "../pages/vendor/Riders";
+import Reports from "../pages/vendor/reports/Reports";
 
 export default function VendorRoutes() {
   return (
@@ -17,7 +18,7 @@ export default function VendorRoutes() {
           <Route path="orders" element={<Orders />} />
           <Route path="orders/:orderId" element={<OrderDetails />} />
           <Route path="orders/create" element={<CreateOrder />} />
-
+          <Route path="reports" element={<Reports />} />
 
           <Route path="Stores" element={<Stores />} />
 
