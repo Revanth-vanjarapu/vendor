@@ -254,7 +254,7 @@ export default function Stores() {
                               ? "bg-danger-subtle text-danger"
                               : "bg-secondary-subtle text-secondary"
                           }`}
-                      >
+                      > 
                         {s.status}
                       </span>
                     </td>
