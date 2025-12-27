@@ -284,7 +284,7 @@ export default function Orders() {
               <span className="placeholder col-7" />
             </div>
           </td>
-        
+
           <td>
             <div className="placeholder-glow" style={{ width: 180 }}>
               <span className="placeholder col-8" />
@@ -384,6 +384,7 @@ export default function Orders() {
                         <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>
                           {o.customer?.name || <span className="text-muted">—</span>}
                         </div>
+                        <div className="text-muted small">{o.customer?.phone ?? "-"}</div>
                       </td>
 
 

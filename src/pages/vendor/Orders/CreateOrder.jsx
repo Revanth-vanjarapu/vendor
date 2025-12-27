@@ -7,6 +7,7 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { useNavigate } from "react-router-dom";
 
 import {
   createVendorOrder,
@@ -31,6 +32,7 @@ export default function CreateOrder() {
   const [mode, setMode] = useState("single");
   const [stores, setStores] = useState([]);
   const [storeId, setStoreId] = useState("");
+  const navigate = useNavigate();
 
   /* ===============================
      Toast
@@ -161,6 +163,9 @@ export default function CreateOrder() {
     if (!selectedStore) {
       return showToast("danger", "Select store");
     }
+    if (!single.notes?.trim()) {
+      return showToast("danger", "Address is required");
+    }
 
     const parsedDrop = parseLatLng(single.dropLocation);
 
@@ -197,7 +202,31 @@ export default function CreateOrder() {
 
       await createVendorOrder(payload);
 
+      // reset single order form
+      setSingle({
+        clientOrderId: "",
+        customerName: "",
+        phone: "",
+        pickupLat: selectedStore.lat,
+        pickupLng: selectedStore.lng,
+        dropLocation: "",
+        dropLat: "",
+        dropLng: "",
+        vehicleType: "BIKE",
+        notes: "",
+      });
+
+      // reset store selection (optional but clean)
+      setStoreId("");
+
+      // success toast
       showToast("success", "Order created successfully");
+
+      // go to orders page after short delay
+      setTimeout(() => {
+        navigate("/vendor/orders");
+      }, 800);
+
     } catch (err) {
       showToast("danger", "Order creation failed");
     } finally {
@@ -300,8 +329,15 @@ export default function CreateOrder() {
         "success",
         `${bulkParsed.length} orders created`
       );
+
       setBulkParsed([]);
       setBulkText("");
+
+      // redirect to orders
+      setTimeout(() => {
+        navigate("/vendor/orders");
+      }, 800);
+
     } catch {
       showToast("danger", "Bulk order failed");
     } finally {
@@ -473,7 +509,7 @@ export default function CreateOrder() {
                     onClick={(e) => {
                       const input =
                         e.currentTarget.previousSibling;
-                      if (input?.value)  {
+                      if (input?.value) {
                         searchLocation(input.value);
                       }
                     }}
