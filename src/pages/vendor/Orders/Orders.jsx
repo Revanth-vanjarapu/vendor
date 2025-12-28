@@ -141,9 +141,14 @@ export default function Orders() {
   // Helpers
   // ------------------------
   const getDropFullAddress = (o) =>
-    (o.notes && typeof o.notes === "string" && o.notes.trim()) ||
-    o.drop?.address?.full ||
-    (o.drop?.lat && o.drop?.lng ? `${o.drop.lat}, ${o.drop.lng}` : "Customer location");
+    o.drop?.address ||        // ✅ FIRST
+    o.customer?.address?.trim() ||
+    o.notes?.trim() ||
+    (o.drop?.lat && o.drop?.lng
+      ? `${o.drop.lat}, ${o.drop.lng}`
+      : "Customer location");
+
+
 
   const getDropShort = (full) => {
     if (!full) return "—";

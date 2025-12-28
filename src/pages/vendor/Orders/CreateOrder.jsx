@@ -194,6 +194,7 @@ export default function CreateOrder() {
         customer: {
           name: single.customerName,
           phone: single.phone,
+          address: single.notes, // ✅ MOVE address here
         },
         vehicleType: single.vehicleType,
         notes: single.notes,
@@ -290,19 +291,30 @@ export default function CreateOrder() {
       parsed.push({
         clientOrderId: clientOrderId || null,
         storeId: store.storeId,
-        pickup: { lat: store.lat, lng: store.lng },
+        pickup: {
+          lat: Number(store.lat),
+          lng: Number(store.lng),
+        },
         drop: {
           lat: Number(lat),
           lng: Number(lng),
+          address: {
+            full: address?.trim(),   // ✅ THIS WILL COME BACK
+          },
         },
         customer: {
           name: customerName,
           phone,
+          address: address?.trim(),
         },
+        notes: address?.trim(),
+        // ✅ CRITICAL FIX
         vehicleType: "BIKE",
-        notes: address,
         source: "VENDOR_WEB",
       });
+
+
+
     });
 
     setBulkParsed(parsed);

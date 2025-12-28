@@ -11,6 +11,10 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import pickupPin from "../../../assets/map/green.svg";
+import dropPin from "../../../assets/map/red.svg";
+import riderPin from "../../../assets/map/bike.svg";
+
 
 import {
   getVendorOrderById,
@@ -20,18 +24,18 @@ import {
 import { getVendorRiders } from "../../../api/vendor.riders.api";
 import { useSocket } from "../../../hooks/useSocket";
 
-/* ===============================
-  LEAFLET ICON FIX
-================================ */
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  shadowUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
+// /* ===============================
+//   LEAFLET ICON FIX
+// ================================ */
+// delete L.Icon.Default.prototype._getIconUrl;
+// L.Icon.Default.mergeOptions({
+//   iconUrl:
+//     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+//   iconRetinaUrl:
+//     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+//   shadowUrl:
+//     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+// });
 
 /* Rider icon (optional custom) */
 const riderIcon = L.divIcon({
@@ -92,6 +96,27 @@ export default function AdminOrderView() {
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
   const [proofViewing, setProofViewing] = useState(null); // url to open in new tab
+
+  const pickupIcon = new L.Icon({
+    iconUrl: pickupPin,
+    iconSize: [36, 36],
+    iconAnchor: [18, 36],
+    popupAnchor: [0, -36],
+  });
+
+  const dropIcon = new L.Icon({
+    iconUrl: dropPin,
+    iconSize: [36, 36],
+    iconAnchor: [18, 36],
+    popupAnchor: [0, -36],
+  });
+
+  const riderIcon = new L.Icon({
+    iconUrl: riderPin,
+    iconSize: [40, 40],
+    iconAnchor: [20, 40],
+    popupAnchor: [0, -40],
+  });
 
   /* ===============================
     Load order & riders
@@ -454,7 +479,11 @@ export default function AdminOrderView() {
               >
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-                <Marker position={[pickup.lat, pickup.lng]}>
+                <Marker
+                  position={[pickup.lat, pickup.lng]}
+                  icon={pickupIcon}
+                >
+
                   <Popup>
                     <div><strong>Pickup</strong></div>
                     <div>Lat: {pickup.lat}</div>
@@ -462,7 +491,10 @@ export default function AdminOrderView() {
                   </Popup>
                 </Marker>
 
-                <Marker position={[drop.lat, drop.lng]}>
+                <Marker
+                  position={[drop.lat, drop.lng]}
+                  icon={dropIcon}
+                >
                   <Popup>
                     <div><strong>Drop / Delivery</strong></div>
                     <div>{dropAddress || `${drop.lat}, ${drop.lng}`}</div>

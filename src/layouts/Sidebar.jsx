@@ -49,10 +49,10 @@ export default function Sidebar() {
           <NavItem to="/vendor/stores" icon="shop" label="Stores" />
           <NavItem to="/vendor/orders" icon="receipt" label="Orders" />
 
+          <NavItem to="/vendor/riders" icon="bicycle" label="Riders" />
           {/* ✅ NEW REPORTS TAB */}
           <NavItem to="/vendor/reports" icon="bar-chart-line" label="Reports" />
 
-          <NavItem to="/vendor/riders" icon="bicycle" label="Riders" />
 
         </ul>
       </nav>
