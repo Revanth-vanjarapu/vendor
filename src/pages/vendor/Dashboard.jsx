@@ -1,11 +1,12 @@
 // src/pages/vendor/Dashboard.jsx
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-
+import { getVendorRiders } from "../../api/vendor.riders.api";
 import { getVendorStores } from "../../api/vendor.stores.api";
 import { getVendorOrders } from "../../api/vendor.orders.api";
 import { useSocket } from "../../hooks/useSocket";
 import "../../index.css"; // load your page card styles (you uploaded this)
+import httpClient from "../../utils/httpClient";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -16,6 +17,9 @@ export default function Dashboard() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [ridersMap, setRidersMap] = useState({});
+  const [deliveredCount, setDeliveredCount] = useState(0);
+
 
   /* ===============================
      SAFE PARSE: normalize vendor orders response shape
@@ -45,10 +49,12 @@ export default function Dashboard() {
       setLoading(true);
       setError("");
 
-      const [storesRes, ordersRes] = await Promise.all([
+      const [storesRes, ordersRes, ridersRes] = await Promise.all([
         getVendorStores(),
         getVendorOrders({ page: 1, limit: 100 }),
+        getVendorRiders(),
       ]);
+
 
       // Normalize store items (support different shapes)
       const storesItems =
@@ -56,6 +62,17 @@ export default function Dashboard() {
         storesRes?.data?.data ??
         storesRes?.data ??
         [];
+
+      const deliveredRes = await httpClient.get(
+        "/api/vendor/orders/delivered?page=1&limit=1"
+      );
+      const totalDelivered =
+        deliveredRes?.data?.pagination?.total ?? 0;
+
+      setDeliveredCount(totalDelivered);
+
+
+
 
       const storesArray = Array.isArray(storesItems) ? storesItems : [];
       // Build map keyed by storeId (fallback to _id)
@@ -66,6 +83,23 @@ export default function Dashboard() {
       });
       setStoresMap(map);
       setStoresCount(storesArray.length);
+      // ===============================
+      // BUILD RIDERS MAP (SAFE)
+      // ===============================
+      const ridersItems =
+        ridersRes?.data?.data ??
+        ridersRes?.data ??
+        [];
+
+      const ridersArray = Array.isArray(ridersItems) ? ridersItems : [];
+
+      const rMap = {};
+      ridersArray.forEach((r) => {
+        if (r?.riderId) rMap[r.riderId] = r;
+      });
+
+      setRidersMap(rMap);
+
 
       // Parse orders
       const parsed = parseOrdersResponse(ordersRes);
@@ -93,6 +127,8 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
+
+
 
   /* ===============================
      REALTIME UPDATES (SOCKET)
@@ -135,7 +171,7 @@ export default function Dashboard() {
     ["ASSIGNED", "PICKED_UP", "ON_THE_WAY"].includes(o.status)
   ).length;
 
-  const delivered = orders.filter((o) => o.status === "DELIVERED").length;
+  // const delivered = orders.filter((o) => o.status === "DELIVERED").length;
 
   const recentOrders = [...orders].slice(0, 5); // already sorted
 
@@ -257,7 +293,7 @@ export default function Dashboard() {
       </div>
 
       {/* STATS */}
-      <div className="row g-3 mb-4  ">
+      <div className="row g-3 mb-4">
         <div className="col-sm-6 col-md-3">
           <div className="card-ui card p-3">
             <div className="small text-muted">New Orders</div>
@@ -272,12 +308,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="col-sm-6 col-md-3">
+        {/* <div className="col-sm-6 col-md-3">
           <div className="card card-ui p-3">
-            <div className="small text-muted">Delivered</div>
-            <div className="h3 mb-0">{delivered}</div>
+            <div className="small text-muted">Todays Orders Delivered</div>
+            <div className="h3 mb-0">{deliveredCount}</div>
           </div>
-        </div>
+        </div> */}
 
         <div className="col-sm-6 col-md-3">
           <div className="card card-ui p-3">
@@ -285,7 +321,18 @@ export default function Dashboard() {
             <div className="h3 mb-0">{storesCount}</div>
           </div>
         </div>
+
+       <div className="col-sm-6 col-md-3">
+          <div className="card card-ui p-3">
+            <div className="small text-muted">Total Orders delivered</div>
+            <div className="h3 mb-0">{deliveredCount}</div>
+          </div>
+        </div>
+
       </div>
+
+      
+       
 
       {/* RECENT ORDERS (first 5) */}
       <div className="card card-ui">
@@ -308,6 +355,7 @@ export default function Dashboard() {
                 <th>CID</th>
                 <th>Store</th>
                 <th>Customer</th>
+                <th>Rider</th>
                 <th>Created</th>
                 <th>Picked up</th>
                 <th>Delivered</th>
@@ -339,6 +387,11 @@ export default function Dashboard() {
                     <td>
                       <div className="fw-semibold">{o.customer?.name || "—"}</div>
                       <div className="text-muted small">{o.customer?.phone || ""}</div>
+                    </td>
+
+                    <td>
+                      <div className="fw-semibold">{ridersMap[o.assignedRiderId]?.name || "—"}</div>
+                      <div className="text-muted small">{o.assignedRiderId || ""}</div>
                     </td>
 
 

@@ -17,6 +17,12 @@ function diffInDays(from, to) {
     const end = new Date(to);
     return Math.ceil((end - start) / (1000 * 60 * 60 * 24));
 }
+function toEndOfDay(dateStr) {
+    if (!dateStr) return dateStr;
+    const d = new Date(dateStr);
+    d.setHours(23, 59, 59, 999);
+    return d.toISOString();
+}
 
 
 export default function Reports() {
@@ -32,7 +38,7 @@ export default function Reports() {
     const [filters, setFilters] = useState({
         storeId: "",
         riderId: "",
-        status: "DELIVERED",
+        status: "",
         fromDate: "",
         toDate: "",
     });
@@ -75,8 +81,11 @@ export default function Reports() {
                         storeId: filters.storeId || undefined,
                         riderId: filters.riderId || undefined,
                         status: filters.status || undefined,
-                        fromDate: filters.fromDate || undefined,
-                        toDate: filters.toDate || undefined,
+                        fromDate: filters.fromDate || minDate,
+                        toDate: filters.toDate
+                            ? toEndOfDay(filters.toDate)
+                            : toEndOfDay(today),
+
                     },
                 }
             );
@@ -165,8 +174,10 @@ export default function Reports() {
                             storeId: filters.storeId || undefined,
                             riderId: filters.riderId || undefined,
                             status: filters.status || undefined,
-                            fromDate: filters.fromDate || undefined,
-                            toDate: filters.toDate || undefined,
+                            fromDate: filters.fromDate || minDate,
+                            toDate: filters.toDate ? toEndOfDay(filters.toDate)
+                                : toEndOfDay(today),
+
                         },
                     }
                 );
@@ -245,7 +256,10 @@ export default function Reports() {
                     o.billing?.totalAmount ?? "-",
                     o.status,
                     getRiderName(o.assignedRiderId),
-                    new Date(o.updatedAt).toLocaleDateString("en-GB"),
+                    new Date(
+                        o.billing?.calculatedAt || o.createdAt || o.updatedAt
+                    ).toLocaleDateString("en-GB"),
+
                 ])),
                 styles: {
                     fontSize: 8,
@@ -446,10 +460,11 @@ export default function Reports() {
 
                                     <td>{getRiderName(o.assignedRiderId)}</td>
                                     <td>
-                                        {new Date(o.updatedAt).toLocaleDateString(
-                                            "en-GB"
-                                        )}
+                                        {new Date(
+                                            o.billing?.calculatedAt || o.updatedAt || o.createdAt
+                                        ).toLocaleDateString("en-GB")}
                                     </td>
+
                                 </tr>
                             ))}
 
@@ -459,7 +474,7 @@ export default function Reports() {
                                         colSpan="11"
                                         className="text-center text-muted py-4"
                                     >
-                                        Clink generate to load report
+                                        Click generate to load report
                                     </td>
                                 </tr>
                             )}

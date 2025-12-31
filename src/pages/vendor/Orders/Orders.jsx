@@ -34,12 +34,23 @@ export default function Orders() {
   // riders for assignment
   const [riders, setRiders] = useState([]);
   const [assigningMap, setAssigningMap] = useState({}); // { [orderId]: boolean }
+  const ridersMap = {};
+  riders.forEach((r) => {
+    if (r?.riderId) ridersMap[r.riderId] = r;
+  });
 
   // stores map: { [storeId]: { storeId, name, ... } }
   const [storesMap, setStoresMap] = useState({});
 
   const isMountedRef = useRef(true);
 
+  // filters
+  const [filterStoreId, setFilterStoreId] = useState("");
+  const [filterRiderId, setFilterRiderId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [searchText, setSearchText] = useState("");
+
+  // ------------------------
   useEffect(() => {
     isMountedRef.current = true;
     loadStores();
@@ -318,6 +329,33 @@ export default function Orders() {
     }
     return rows;
   };
+  const filteredOrders = orders.filter((o) => {
+    // Store filter
+    if (filterStoreId && o.storeId !== filterStoreId) return false;
+
+    // Rider filter
+    if (filterRiderId && o.assignedRiderId !== filterRiderId) return false;
+
+    // Status filter
+    if (filterStatus && o.status !== filterStatus) return false;
+
+    // Search
+    if (searchText) {
+      const search = searchText.toLowerCase();
+
+      const combined = `
+      ${o.orderId}
+      ${o.clientOrderId}
+      ${o.customer?.name}
+      ${storesMap[o.storeId]?.name}
+      ${ridersMap[o.assignedRiderId]?.name}
+    `.toLowerCase();
+
+      if (!combined.includes(search)) return false;
+    }
+
+    return true;
+  });
 
   // ------------------------
   // Main render
@@ -327,13 +365,85 @@ export default function Orders() {
       {/* HEADER */}
       <div className="mb-4 d-flex justify-content-between align-items-center">
         <h4 className="fw-semibold mb-0">Orders</h4>
-
-        <button className="btn btn-dark btn-sm" onClick={() => navigate("/vendor/orders/create")}>
-          + New Request
-        </button>
+        <div className="d-flex align-items-center gap-2">
+          <button className="btn btn-dark btn-sm" onClick={() => navigate("/vendor/orders/create")}>
+            + New Request
+          </button>
+          <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => loadOrders(page)}>
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && <div className="alert alert-danger rounded">{error}</div>}
+      <div className="card card-ui mb-3 p-3 d-none">
+        <div className="row g-2 align-items-end">
+
+          {/* Store */}
+          <div className="col-md-3">
+            <label className="form-label small">Store</label>
+            <select
+              className="form-select form-select-sm"
+              value={filterStoreId}
+              onChange={(e) => setFilterStoreId(e.target.value)}
+            >
+              <option value="">All Stores</option>
+              {Object.values(storesMap).map((s) => (
+                <option key={s.storeId} value={s.storeId}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Rider */}
+          <div className="col-md-3">
+            <label className="form-label small">Rider</label>
+            <select
+              className="form-select form-select-sm"
+              value={filterRiderId}
+              onChange={(e) => setFilterRiderId(e.target.value)}
+            >
+              <option value="">All Riders</option>
+              {riders.map((r) => (
+                <option key={r.riderId} value={r.riderId}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status */}
+          <div className="col-md-2">
+            <label className="form-label small">Status</label>
+            <select
+              className="form-select form-select-sm"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+            >
+              <option value="">All</option>
+              <option value="NEW">New</option>
+              <option value="ASSIGNED">Assigned</option>
+              <option value="PICKED_UP">Picked Up</option>
+              <option value="ON_THE_WAY">On the way</option>
+              <option value="DELIVERED">Delivered</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+          </div>
+
+          {/* Search */}
+          <div className="col-md-4">
+            <label className="form-label small">Search</label>
+            <input
+              type="text"
+              className="form-control form-control-sm"
+              placeholder="Order ID, CID, customer, store, rider"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="card card-ui">
         <div className="table-responsive">
@@ -362,7 +472,7 @@ export default function Orders() {
                   </td>
                 </tr>
               ) : (
-                orders.map((o) => {
+                filteredOrders.map((o) => {
                   const fullDrop = getDropFullAddress(o);
                   const shortDrop = getDropShort(fullDrop);
                   const storeName = getStoreName(o);
@@ -382,7 +492,7 @@ export default function Orders() {
                       {/* CID */}
                       <td>
                         <div style={{ fontSize: "1rem", fontWeight: 600 }}>{o.clientOrderId || <span className="text-muted">Not specified</span>}</div>
-                        <div className="text-muted small">{o.customer?.phone ?? "-"}</div>
+                        <div className="text-muted small">{o.orderId ?? "-"}</div>
                       </td>
                       {/* CUSTOMER */}
                       <td>
